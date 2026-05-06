@@ -12,9 +12,19 @@
     "storageManage": "存储管理",
     "sessionManage": "会话管理",
     "about": "关于",
-    "api": "API 服务"
+    "api": "自动化",
+    "apiSubTabs": {
+      "autoSync": "自动同步",
+      "apiService": "API 服务"
+    }
   },
   "basic": {
+    "general": {
+      "title": "常规"
+    },
+    "preferences": {
+      "title": "偏好设置"
+    },
     "language": {
       "title": "语言",
       "description": "选择软件显示语言"
@@ -28,9 +38,21 @@
     },
     "defaultTab": {
       "title": "默认标签页",
-      "description": "进入会话后默认显示的页面",
+      "description": "进入聊天对话后默认显示的页面",
       "overview": "总览",
       "aiChat": "AI 对话"
+    },
+    "autoLaunch": {
+      "title": "启动设置",
+      "openAtLogin": "开机自启动",
+      "openAtLoginDesc": "系统启动时自动运行 ChatLab",
+      "devModeHint": "开发模式下不可用"
+    },
+    "toolsPanel": {
+      "positionLabel": "快捷工具入口位置",
+      "positionDesc": "选择快捷工具面板的显示位置",
+      "positionSide": "右侧",
+      "positionHeader": "顶部"
     },
     "screenshot": {
       "title": "截图设置",
@@ -64,7 +86,6 @@
     "inUse": "使用中",
     "defaultModel": "默认模型",
     "localService": "本地服务",
-    "customEndpoint": "自定义端点",
     "edit": "编辑",
     "delete": "删除",
     "empty": {
@@ -106,6 +127,16 @@
       "modelNameHintLocal": "输入本地部署的模型名称",
       "apiEndpoint": "API 地址",
       "apiEndpointHint": "兼容 OpenAI 格式的 API 端点",
+      "resolvedUrl": "实际请求地址:",
+      "fetchModels": "从 API 获取",
+      "fetchModelsTitle": "浏览远程模型",
+      "fetchModelsLoading": "正在获取模型列表...",
+      "fetchModelsEmpty": "未获取到模型",
+      "fetchModelsError": "获取模型列表失败",
+      "fetchModelsCount": "共 {total} 个模型，当前显示 {shown} 个",
+      "modelAdded": "已添加",
+      "addAllModels": "全部添加",
+      "searchModels": "搜索模型...",
       "apiEndpointOverrideHint": "默认地址已填入，可按需改为完整 URL",
       "disableThinking": "禁用思考模式",
       "disableThinkingDesc": "针对 Qwen3、DeepSeek-R1 等模型，禁用后使用标准工具调用格式",
@@ -120,18 +151,23 @@
       "thirdPartyService": "第三方服务",
       "customModelInput": "手动输入模型",
       "selectFromList": "从列表选择",
-      "addCustomModel": "添加自定义模型",
-      "deleteCustomModel": "删除选中自定义模型",
+      "addCustomModel": "添加模型",
+      "deleteCustomModel": "删除选中",
       "customModelId": "模型端点名",
       "customModelIdHint": "API 调用时使用的模型标识符",
       "customModelDisplayName": "显示名称",
       "customModelDisplayNamePlaceholder": "自定义显示名",
-      "modelCapabilities": "模型能力标注"
+      "modelCapabilities": "模型能力标注",
+      "modelRequired": "至少添加一个模型才能保存",
+      "apiFormat": "API 接口类型",
+      "apiFormatOpenAI": "OpenAI Completions",
+      "apiFormatAnthropic": "Anthropic",
+      "apiFormatGemini": "Gemini",
+      "apiFormatOpenAIResponses": "OpenAI Responses"
     },
     "providerKind": {
       "official": "官方",
       "aggregator": "聚合",
-      "compatible": "兼容",
       "custom": "自定义"
     },
     "capabilities": {
@@ -158,6 +194,7 @@
       "newPath": "新目录路径",
       "defaultPath": "默认位置",
       "confirmWarning": "重启应用后，旧数据目录将被自动删除。请确保新目录路径正确。",
+      "installDirForbidden": "不能将数据目录放在应用安装目录下，应用更新时该目录会被清空",
       "cancel": "取消",
       "confirm": "确认切换",
       "migrationSuccessTitle": "数据迁移完成",
@@ -170,11 +207,6 @@
     "notExist": "不存在",
     "clear": "清理",
     "open": "打开",
-    "notes": {
-      "title": "注意事项",
-      "logSafe": "日志文件主要用于排查BUG，可以安全清理",
-      "noRecover": "所有文件清理后无法恢复，请谨慎操作"
-    },
     "cache": {
       "databases": {
         "name": "聊天记录数据库",
@@ -464,6 +496,7 @@
       "title": "数据源",
       "desc": "配置外部数据源 URL，ChatLab 将按设定间隔自动拉取并导入聊天数据。",
       "empty": "暂无数据源",
+      "noSessions": "暂无导入会话，点击上方「管理导入会话」添加",
       "disabled": "已暂停",
       "every": "每",
       "minutes": "分钟",
@@ -477,15 +510,53 @@
         "token": "访问令牌（可选）",
         "tokenPlaceholder": "远程 API 的 Bearer Token",
         "interval": "拉取间隔（分钟）",
+        "pullLimit": "每次拉取消息数",
+        "pullLimitPlaceholder": "默认 1000",
         "targetSession": "目标会话 ID（可选）",
         "targetSessionPlaceholder": "留空则每次新建会话",
         "add": "添加"
+      },
+      "discovery": {
+        "directMode": "直接 URL",
+        "remoteMode": "远程服务器",
+        "baseUrl": "服务器地址",
+        "baseUrlPlaceholder": "示例：http://127.0.0.1:2333/api/v1",
+        "browse": "浏览远程会话",
+        "found": "发现 {count} 个会话",
+        "search": "搜索",
+        "searchPlaceholder": "按会话名称搜索",
+        "selectAll": "全选",
+        "deselectAll": "取消全选",
+        "selectByType": "会话类型",
+        "typeAll": "全部",
+        "typePrivate": "私聊",
+        "typeGroup": "群聊",
+        "typeOther": "其他",
+        "loadMore": "加载更多",
+        "subscribe": "订阅 {count} 个会话",
+        "messages": "条消息",
+        "error": "连接远程服务器失败"
+      },
+      "edit": {
+        "title": "修改配置",
+        "save": "保存",
+        "cancel": "取消",
+        "editSource": "修改配置",
+        "manageSessions": "管理订阅",
+        "manageSessionsDesc": "重新选择要同步的远程会话",
+        "syncAll": "一键同步",
+        "subscribed": "已订阅"
+      },
+      "deleteConfirm": {
+        "title": "删除数据源",
+        "message": "确认删除数据源「{name}」？该数据源下的所有导入配置将被移除。已导入的本地对话不会被删除。"
       }
     },
     "usage": {
       "title": "使用说明",
-      "desc": "启用服务后，可使用以下端点查询数据。所有请求需携带 Bearer Token 认证。",
-      "authHint": "请求头示例："
+      "desc": "启用服务后，外部工具可通过 API 查询和导入数据。所有请求需携带 Bearer Token 认证。",
+      "authHint": "请求头示例：",
+      "docLink": "查看完整 API 文档"
     }
   }
 }

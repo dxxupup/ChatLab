@@ -16,7 +16,9 @@
       "sizeScale": "Font size",
       "userFilter": "User filter",
       "posFilter": "POS filter",
-      "enableStopwords": "Filter stopwords"
+      "enableStopwords": "Filter stopwords",
+      "dict": "Dictionary",
+      "advanced": "Advanced"
     },
     "size": {
       "small": "S",
@@ -36,6 +38,21 @@
     "empty": {
       "title": "No word cloud data",
       "description": "Not enough text messages to generate a word cloud with current filters"
+    },
+    "dict": {
+      "zhCN": "Simplified Chinese",
+      "zhTW": "Traditional Chinese",
+      "download": "Download dictionary",
+      "download_zh-CN": "Download Simplified Chinese dict",
+      "download_zh-TW": "Download Traditional Chinese dict",
+      "needDownload": "Please download a dictionary to use word cloud analysis",
+      "downloadHint": "~8MB",
+      "downloadSuccess": "Dictionary downloaded successfully",
+      "downloadFailed": "Dictionary download failed",
+      "promptTitle": "Traditional Chinese Dictionary",
+      "promptDescription": "We detected you're using Traditional Chinese. For best word cloud results, a Traditional Chinese dictionary is recommended. Download now? (~8MB)",
+      "promptDownload": "Download now",
+      "promptLater": "Maybe later"
     }
   },
   "keywords": {
@@ -118,6 +135,39 @@
     "viewChat": "View chat history",
     "empty": "No repeat data available"
   },
+  "topicProfile": {
+    "dateAll": "All messages",
+    "dateNow": "Present",
+    "heroPrefix": "Analyzed",
+    "heroMiddle": "messages,",
+    "heroMiddleSecond": "yielding",
+    "heroSuffix": "unique words",
+    "topTopicsPrefix": "You love talking about:",
+    "topKeywords": "Top Keywords",
+    "hotTopic": "Hot Topic",
+    "hotTopicDesc": "Appeared {count} times",
+    "richness": "Lexical Diversity",
+    "richnessValue": "{value}%",
+    "richnessDesc": "Unique {unique} / Total {total}",
+    "chatStyle": "Chat Style",
+    "styleEncyclopedia": "Encyclopedia",
+    "styleEncyclopediaDesc": "Noun-heavy, loves discussing people, places & things",
+    "styleAction": "Action-Oriented",
+    "styleActionDesc": "Verb-heavy, loves discussing what to do",
+    "styleExpressive": "Expressive",
+    "styleExpressiveDesc": "Adjective-heavy, rich in emotional expression",
+    "styleBalanced": "Balanced",
+    "styleBalancedDesc": "Diverse topics, well-rounded conversations",
+    "expressionStyle": "Expression Style",
+    "expressionCasual": "Casual",
+    "expressionCasualDesc": "Short words, relaxed and informal",
+    "expressionFormal": "Formal",
+    "expressionFormalDesc": "Elaborate words, precise expression",
+    "expressionMixed": "Mixed",
+    "expressionMixedDesc": "A blend of casual and formal",
+    "watermark": "Topic Profile",
+    "sharedTopics": "Shared Topics"
+  },
   "catchphrase": {
     "title": "💬 Catchphrase Analysis",
     "loading": "Analyzing catchphrases...",
@@ -139,5 +189,83 @@
     },
     "phraseCount": "{count} catchphrases",
     "topN": "Show count"
+  },
+  "languagePreference": {
+    "loading": "Analyzing language preferences...",
+    "empty": "Not enough text messages for language analysis",
+    "card": {
+      "sharedWordsLabel": "Shared High-Frequency Words",
+      "syncSubtext": "Speaking style similarity based on POS distribution",
+      "warmthWarm": "Warm",
+      "warmthCrisp": "Crisp",
+      "warmthBalanced": "Balanced",
+      "expressionLabel": "Your expressions are full of",
+      "diversityTitle": "Lexical Depth",
+      "diversityDesc": "Unique word ratio",
+      "styleTitle": "Chat Style",
+      "styleDesc": "Expression style based on POS distribution",
+      "punctTitle": "Punctuation Style",
+      "punctDesc": "Most used punctuation personality",
+      "punctTopTitle": "Punctuation TOP5",
+      "punctTopDesc": "Most frequently used punctuation marks",
+      "modalTopTitle": "Modal Particles TOP5",
+      "modalTopDesc": "Most frequently used modal particles",
+      "sharedWordsTitle": "Shared Words",
+      "sharedWordsDesc": "High-frequency words used by both",
+      "watermark": "Language Preference",
+      "radarFactual": "Factual",
+      "radarActive": "Active",
+      "radarDescriptive": "Descriptive",
+      "radarAffable": "Affable",
+      "radarIntense": "Intense",
+      "radarNoun": "Noun",
+      "radarVerb": "Verb",
+      "radarAdj": "Adjective",
+      "radarModal": "Modal",
+      "radarAdv": "Adverb",
+      "topCatchphrases": "Top Catchphrases",
+      "languageProfiles": "Language Profiles"
+    },
+    "catchphrasePK": {
+      "title": "Catchphrase Battle",
+      "sharedCount": "{count} shared catchphrases",
+      "hint": "Click to view messages. Pink outlines mark shared catchphrases."
+    },
+    "pos": {
+      "title": "POS Portrait",
+      "styleEncyclopedia": "Encyclopedia",
+      "styleAction": "Action-oriented",
+      "styleExpressive": "Expressive",
+      "styleBalanced": "Balanced"
+    },
+    "modal": {
+      "title": "Modal Particles",
+      "toneSoft": "Soft & Warm",
+      "toneCurious": "Curious",
+      "toneCasual": "Casual",
+      "toneCalm": "Calm & Steady",
+      "toneMixed": "Mixed Style",
+      "empty": "No modal particle data"
+    },
+    "punctuation": {
+      "title": "Punctuation Personality",
+      "none": "No punct.",
+      "personalityDeep": "Deep Thinker",
+      "personalityPassionate": "Passionate",
+      "personalityCurious": "Curious Mind",
+      "personalityCheerful": "Cheerful",
+      "personalityFreeflow": "Free-flow",
+      "personalityPrecise": "Precise",
+      "empty": "No punctuation data"
+    },
+    "sync": {
+      "title": "Language Sync",
+      "description": "Speaking style similarity based on POS distribution",
+
+      "labelSoulmate": "Soulmates",
+      "labelHighSync": "Highly Synced",
+      "labelUnique": "Unique Styles",
+      "labelDiverse": "Divergent"
+    }
   }
 }

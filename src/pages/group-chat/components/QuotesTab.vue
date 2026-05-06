@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SubTabs } from '@/components/UI'
-import { CatchphraseTab, HotRepeatTab, KeywordAnalysis, WordcloudTab } from '@/components/analysis/quotes'
+import { CatchphraseTab, HotRepeatTab } from '@/components/analysis/quotes'
 
 const { t } = useI18n()
 
@@ -18,17 +18,15 @@ const props = defineProps<{
 
 // 子 Tab 配置
 const subTabs = computed(() => [
-  { id: 'wordcloud', label: t('analysis.subTabs.quotes.wordcloud'), icon: 'i-heroicons-cloud' },
   { id: 'hot-repeat', label: t('analysis.subTabs.quotes.hotRepeat'), icon: 'i-heroicons-fire' },
   {
     id: 'catchphrase',
     label: t('analysis.subTabs.quotes.catchphrase'),
     icon: 'i-heroicons-chat-bubble-bottom-center-text',
   },
-  { id: 'keyword', label: t('analysis.subTabs.quotes.keywordAnalysis'), icon: 'i-heroicons-magnifying-glass' },
 ])
 
-const activeSubTab = ref('wordcloud')
+const activeSubTab = ref('hot-repeat')
 </script>
 
 <template>
@@ -52,18 +50,6 @@ const activeSubTab = ref('wordcloud')
           :session-id="props.sessionId"
           :time-filter="props.timeFilter"
         />
-
-        <!-- 词云分析 -->
-        <WordcloudTab
-          v-else-if="activeSubTab === 'wordcloud'"
-          :session-id="props.sessionId"
-          :time-filter="props.timeFilter"
-        />
-
-        <!-- 关键词分析 -->
-        <div v-else-if="activeSubTab === 'keyword'" class="main-content mx-auto max-w-3xl p-6">
-          <KeywordAnalysis :session-id="props.sessionId" :time-filter="props.timeFilter" />
-        </div>
       </Transition>
     </div>
   </div>

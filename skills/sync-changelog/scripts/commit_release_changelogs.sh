@@ -9,10 +9,10 @@ if [[ -z "$REPO_PATH" ]]; then
   exit 1
 fi
 
-CN_FILE="$REPO_PATH/docs/changelogs_cn.json"
-EN_FILE="$REPO_PATH/docs/changelogs_en.json"
-TW_FILE="$REPO_PATH/docs/changelogs_tw.json"
-JA_FILE="$REPO_PATH/docs/changelogs_ja.json"
+CN_FILE="$REPO_PATH/docs/public/changelogs/cn.json"
+EN_FILE="$REPO_PATH/docs/public/changelogs/en.json"
+TW_FILE="$REPO_PATH/docs/public/changelogs/tw.json"
+JA_FILE="$REPO_PATH/docs/public/changelogs/ja.json"
 PKG_FILE="$REPO_PATH/package.json"
 
 if [[ ! -f "$CN_FILE" || ! -f "$EN_FILE" || ! -f "$TW_FILE" || ! -f "$JA_FILE" || ! -f "$PKG_FILE" ]]; then
@@ -30,10 +30,10 @@ fi
 # 注意：package.json 中的版本号需要和 release 提交一起落盘。
 git -C "$REPO_PATH" add \
   package.json \
-  docs/changelogs_cn.json \
-  docs/changelogs_en.json \
-  docs/changelogs_tw.json \
-  docs/changelogs_ja.json
+  docs/public/changelogs/cn.json \
+  docs/public/changelogs/en.json \
+  docs/public/changelogs/tw.json \
+  docs/public/changelogs/ja.json
 
 # 若没有差异则不提交，避免空提交失败。
 if git -C "$REPO_PATH" diff --cached --quiet; then

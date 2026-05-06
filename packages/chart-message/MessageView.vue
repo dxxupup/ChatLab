@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EChartPie, EChartBar, EChartHeatmap, EChartCalendar } from '@/components/charts'
 import type { EChartPieData, EChartBarData, EChartHeatmapData, EChartCalendarData } from '@/components/charts'
-import { SectionCard } from '@/components/UI'
+import { SectionCard, LoadingState } from '@/components/UI'
 import {
   queryMessageTypes,
   queryHourlyActivity,
@@ -12,6 +12,7 @@ import {
   queryMonthlyActivity,
   queryYearlyActivity,
   queryLengthDistribution,
+  queryTextStats,
 } from './queries'
 import { getMessageTypeName } from './types'
 import type {
@@ -21,7 +22,9 @@ import type {
   DailyActivity,
   YearlyActivity,
   MessageTypeCount,
+  TextStats,
 } from './types'
+import MessageProfileCard from './MessageProfileCard.vue'
 
 interface TimeFilter {
   startTs?: number
@@ -31,6 +34,7 @@ interface TimeFilter {
 
 const props = defineProps<{
   sessionId: string
+  sessionName?: string
   timeFilter?: TimeFilter
 }>()
 
@@ -46,6 +50,7 @@ const yearlyActivity = ref<YearlyActivity[]>([])
 const dailyActivity = ref<DailyActivity[]>([])
 const lengthDetail = ref<Array<{ len: number; count: number }>>([])
 const lengthGrouped = ref<Array<{ range: string; count: number }>>([])
+const textStats = ref<TextStats>({ textCount: 0, avgLength: 0, maxLength: 0, shortCount: 0 })
 
 // 星期名称（按 1=周一 到 7=周日 的顺序）
 const weekdayNames = computed(() => [
@@ -221,7 +226,7 @@ async function loadData() {
 
   isLoading.value = true
   try {
-    const [types, hourly, weekday, monthly, yearly, daily, lengthData] = await Promise.all([
+    const [types, hourly, weekday, monthly, yearly, daily, lengthData, txtStats] = await Promise.all([
       queryMessageTypes(props.sessionId, props.timeFilter),
       queryHourlyActivity(props.sessionId, props.timeFilter),
       queryWeekdayActivity(props.sessionId, props.timeFilter),
@@ -229,6 +234,7 @@ async function loadData() {
       queryYearlyActivity(props.sessionId, props.timeFilter),
       queryDailyActivity(props.sessionId, props.timeFilter),
       queryLengthDistribution(props.sessionId, props.timeFilter),
+      queryTextStats(props.sessionId, props.timeFilter),
     ])
 
     messageTypes.value = types
@@ -239,6 +245,7 @@ async function loadData() {
     dailyActivity.value = daily
     lengthDetail.value = lengthData.detail
     lengthGrouped.value = lengthData.grouped
+    textStats.value = txtStats
 
     if (calendarYears.value.length > 0) {
       selectedCalendarYear.value = calendarYears.value[0]
@@ -259,13 +266,24 @@ watch(
 </script>
 
 <template>
-  <div class="main-content space-y-6 p-6">
+  <div :class="isLoading ? 'h-full' : ''">
     <!-- 加载状态 -->
-    <div v-if="isLoading" class="flex h-64 items-center justify-center">
-      <UIcon name="i-heroicons-arrow-path" class="h-8 w-8 animate-spin text-gray-400" />
-    </div>
+    <LoadingState v-if="isLoading" variant="page" :text="t('common.loading')" />
 
-    <template v-else>
+    <div v-else class="main-content mx-auto max-w-[920px] space-y-6 p-6">
+      <!-- 消息画像卡 -->
+      <MessageProfileCard
+        v-if="messageTypes.length > 0"
+        :session-id="sessionId"
+        :session-name="sessionName || ''"
+        :message-types="messageTypes"
+        :hourly-activity="hourlyActivity"
+        :weekday-activity="weekdayActivity"
+        :daily-activity="dailyActivity"
+        :text-stats="textStats"
+        :time-filter="timeFilter"
+      />
+
       <!-- 消息类型分布 -->
       <SectionCard :title="t('views.message.typeDistribution')" :show-divider="false">
         <div class="p-5">
@@ -406,6 +424,6 @@ watch(
           </div>
         </div>
       </SectionCard>
-    </template>
+    </div>
   </div>
 </template>

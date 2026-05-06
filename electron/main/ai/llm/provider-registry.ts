@@ -43,7 +43,7 @@ const ANTHROPIC: ProviderDefinition = {
   kind: 'official',
   website: 'https://www.anthropic.com',
   consoleUrl: 'https://console.anthropic.com/settings/keys',
-  defaultBaseUrl: 'https://api.anthropic.com/v1',
+  defaultBaseUrl: 'https://api.anthropic.com',
   authMode: 'api-key',
   supportsCustomModels: true,
   builtin: true,
@@ -92,7 +92,7 @@ const DEEPSEEK: ProviderDefinition = {
   supportsCustomModels: true,
   builtin: true,
   enabledByDefault: true,
-  modelIds: ['deepseek-chat', 'deepseek-reasoner'],
+  modelIds: ['deepseek-v4-pro', 'deepseek-v4-flash'],
 }
 
 const QWEN: ProviderDefinition = {
@@ -216,7 +216,7 @@ const OPENROUTER: ProviderDefinition = {
   supportsCustomModels: true,
   builtin: true,
   enabledByDefault: true,
-  modelIds: ['deepseek/deepseek-chat', 'google/gemini-2.5-flash-preview', 'mistralai/mistral-7b-instruct:free'],
+  modelIds: ['deepseek/deepseek-v4-pro', 'google/gemini-2.5-flash-preview', 'mistralai/mistral-7b-instruct:free'],
 }
 
 const XAI: ProviderDefinition = {

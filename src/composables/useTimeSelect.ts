@@ -9,6 +9,12 @@ import type { Ref } from 'vue'
 import type { RouteLocationNormalizedLoaded, Router } from 'vue-router'
 import type { TimeRangeValue, TimeSelectState, TimeSelectMode } from '@/components/common/TimeSelect.vue'
 
+/**
+ * 模块级缓存：按 sessionId 保存用户最后设置的时间筛选状态。
+ * 解决从设置页/AI 对话等页面切回聊天分析页时时间筛选被重置的问题。
+ */
+const timeStateCache = new Map<string, Partial<TimeSelectState>>()
+
 interface UseTimeSelectOptions {
   /** 当前激活的 Tab ref（用于 URL 同步） */
   activeTab: Ref<string>
@@ -57,18 +63,30 @@ export function useTimeSelect(route: RouteLocationNormalizedLoaded, router: Rout
     return new Date(v.startTs * 1000).getFullYear()
   })
 
-  /** 从 URL query 构建 TimeSelect 初始状态 */
+  /**
+   * 从 URL query 构建 TimeSelect 初始状态。
+   * 优先级：URL 参数 > 缓存（上次用户设置）> 默认值（最近一年）
+   */
   const initialTimeState = computed<Partial<TimeSelectState>>(() => {
     const q = route.query
     const m = q.timeMode as TimeSelectMode | undefined
+    if (m) {
+      return {
+        mode: m,
+        recentDays: q.timeDays ? Number(q.timeDays) : undefined,
+        year: q.timeYear ? Number(q.timeYear) : undefined,
+        quarterYear: q.timeYear ? Number(q.timeYear) : undefined,
+        quarter: q.timeQuarter ? Number(q.timeQuarter) : undefined,
+        customStart: (q.timeStart as string) || undefined,
+        customEnd: (q.timeEnd as string) || undefined,
+      }
+    }
+    if (currentSessionId.value && timeStateCache.has(currentSessionId.value)) {
+      return timeStateCache.get(currentSessionId.value)!
+    }
     return {
-      mode: m ?? undefined,
-      recentDays: q.timeDays ? Number(q.timeDays) : undefined,
-      year: q.timeYear ? Number(q.timeYear) : undefined,
-      quarterYear: q.timeYear ? Number(q.timeYear) : undefined,
-      quarter: q.timeQuarter ? Number(q.timeQuarter) : undefined,
-      customStart: (q.timeStart as string) || undefined,
-      customEnd: (q.timeEnd as string) || undefined,
+      mode: 'recent',
+      recentDays: 365,
     }
   })
 
@@ -81,6 +99,11 @@ export function useTimeSelect(route: RouteLocationNormalizedLoaded, router: Rout
     const query: Record<string, string | number | undefined> = {
       tab: newTab as string,
       timeMode: state.mode,
+      timeDays: undefined,
+      timeYear: undefined,
+      timeQuarter: undefined,
+      timeStart: undefined,
+      timeEnd: undefined,
     }
     if (state.mode === 'recent') query.timeDays = state.recentDays
     if (state.mode === 'year') query.timeYear = state.year
@@ -93,7 +116,7 @@ export function useTimeSelect(route: RouteLocationNormalizedLoaded, router: Rout
       query.timeEnd = state.customEnd
     }
 
-    router.replace({ query })
+    router.replace({ query: { ...route.query, ...query } })
   })
 
   // ==================== timeRangeValue 变化监听 ====================
@@ -102,6 +125,8 @@ export function useTimeSelect(route: RouteLocationNormalizedLoaded, router: Rout
     timeRangeValue,
     (val) => {
       if (!val || !currentSessionId.value) return
+      // 缓存当前时间筛选状态，供从其他页面返回时恢复
+      timeStateCache.set(currentSessionId.value, val.state)
       onTimeRangeChange?.()
     },
     { immediate: true }

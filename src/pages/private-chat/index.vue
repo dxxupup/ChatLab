@@ -6,15 +6,17 @@ import { useI18n } from 'vue-i18n'
 import CaptureButton from '@/components/common/CaptureButton.vue'
 import TimeSelect from '@/components/common/TimeSelect.vue'
 import AITab from '@/components/analysis/AITab.vue'
+import MemoryTab from '@/components/analysis/MemoryTab.vue'
 import { ChatExplorer } from '@/components/AIChat'
 import OverviewTab from './components/OverviewTab.vue'
 import ViewTab from './components/ViewTab.vue'
-import QuotesTab from './components/QuotesTab.vue'
 import MemberManagementPanel from './components/MemberTab.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import SessionIndexModal from '@/components/analysis/SessionIndexModal.vue'
 import IncrementalImportModal from '@/components/analysis/IncrementalImportModal.vue'
 const MessageExportModal = defineAsyncComponent(() => import('@/components/MessageExport/MessageExportModal.vue'))
+import ActionToolsPanel from '@/components/layout/ActionToolsPanel.vue'
+import DebugToolsPanel from '@/components/layout/DebugToolsPanel.vue'
 import LoadingState from '@/components/UI/LoadingState.vue'
 import { useSessionStore } from '@/stores/session'
 import { useLayoutStore } from '@/stores/layout'
@@ -47,12 +49,12 @@ function openChatRecordViewer() {
   layoutStore.openChatRecordDrawer({})
 }
 
-// Tab 配置 - 私聊包含总览、视图、语录、AI 对话和实验室
+// Tab 配置 - 私聊包含总览、视图、AI 对话和实验室（关键词分析已移至实验室）
 const tabs = [
   { id: 'overview', labelKey: 'analysis.tabs.overview', icon: 'i-heroicons-chart-pie' },
   { id: 'view', labelKey: 'analysis.tabs.view', icon: 'i-heroicons-presentation-chart-bar' },
-  { id: 'quotes', labelKey: 'analysis.tabs.quotes', icon: 'i-heroicons-chat-bubble-left-right' },
   { id: 'ai-chat', labelKey: 'analysis.tabs.aiChat', icon: 'i-heroicons-chat-bubble-left-ellipsis' },
+  // { id: 'memory', labelKey: 'analysis.tabs.memory', icon: 'i-heroicons-light-bulb' },
   { id: 'lab', labelKey: 'analysis.tabs.lab', icon: 'i-heroicons-beaker' },
 ]
 
@@ -134,23 +136,24 @@ const otherMemberAvatar = computed(() => {
         :title="session.name"
         :description="headerDescription"
         :avatar="otherMemberAvatar"
+        size="compact"
         icon="i-heroicons-user"
         icon-class="bg-pink-600 text-white dark:bg-pink-500 dark:text-white"
       >
         <template #actions>
-          <UButton
-            color="primary"
-            variant="soft"
-            size="sm"
-            icon="i-heroicons-chat-bubble-bottom-center-text"
-            @click="openChatRecordViewer"
-          >
-            {{ t('analysis.tooltip.chatViewer') }}
-          </UButton>
+          <UTooltip v-if="layoutStore.toolsPanelPosition === 'header'" :text="t('analysis.overview.tools')">
+            <UButton
+              icon="i-heroicons-wrench-screwdriver"
+              variant="ghost"
+              color="primary"
+              size="sm"
+              @click="layoutStore.toggleToolsPanelOpen()"
+            />
+          </UTooltip>
           <CaptureButton />
         </template>
         <!-- Tabs -->
-        <div class="mt-4 flex items-center justify-between gap-3">
+        <div class="mt-3 flex items-center justify-between gap-3">
           <div class="flex shrink-0 items-center gap-0.5 overflow-x-auto scrollbar-hide">
             <button
               v-for="tab in tabs"
@@ -171,7 +174,7 @@ const otherMemberAvatar = computed(() => {
           <TimeSelect
             v-model="timeRangeValue"
             :session-id="currentSessionId ?? undefined"
-            :visible="activeTab !== 'ai-chat' && activeTab !== 'lab'"
+            :visible="activeTab !== 'ai-chat' && activeTab !== 'memory' && activeTab !== 'lab'"
             :initial-state="initialTimeState"
             @update:full-range="fullTimeRange = $event"
           />
@@ -181,7 +184,7 @@ const otherMemberAvatar = computed(() => {
       <!-- Tab Content -->
       <div class="relative flex-1 overflow-y-auto">
         <!-- Loading Overlay -->
-        <LoadingState v-if="isLoading" variant="overlay" />
+        <LoadingState v-if="isLoading" variant="overlay" :text="t('common.loading')" />
 
         <div class="h-full">
           <Transition name="tab-slide" mode="out-in">
@@ -198,21 +201,12 @@ const otherMemberAvatar = computed(() => {
               :filtered-message-count="filteredMessageCount"
               :filtered-member-count="filteredMemberCount"
               :time-filter="timeFilter"
-              @open-session-index="showSessionIndexModal = true"
-              @open-incremental-import="showIncrementalImportModal = true"
-              @open-member-management="showMemberManagementModal = true"
-              @open-message-export="showMessageExportModal = true"
             />
             <ViewTab
               v-else-if="activeTab === 'view'"
               :key="'view-' + currentSessionId"
               :session-id="currentSessionId!"
-              :time-filter="timeFilter"
-            />
-            <QuotesTab
-              v-else-if="activeTab === 'quotes'"
-              :key="'quotes-' + currentSessionId"
-              :session-id="currentSessionId!"
+              :session-name="session.name"
               :time-filter="timeFilter"
             />
             <ChatExplorer
@@ -222,17 +216,34 @@ const otherMemberAvatar = computed(() => {
               :session-name="session.name"
               chat-type="private"
             />
+            <MemoryTab
+              v-else-if="activeTab === 'memory'"
+              :key="'memory-' + currentSessionId"
+              :session-id="currentSessionId!"
+              :session-name="session.name"
+            />
             <AITab
               v-else-if="activeTab === 'lab'"
               :key="'lab-' + currentSessionId"
               :session-id="currentSessionId!"
               :session-name="session.name"
+              :time-filter="timeFilter"
               chat-type="private"
               mode="sql-only"
             />
           </Transition>
         </div>
       </div>
+
+      <!-- 右侧工具面板（fixed 定位，不占用页面空间） -->
+      <ActionToolsPanel
+        @open-incremental-import="showIncrementalImportModal = true"
+        @open-session-index="showSessionIndexModal = true"
+        @open-member-management="showMemberManagementModal = true"
+        @open-chat-record="openChatRecordViewer"
+        @open-message-export="showMessageExportModal = true"
+      />
+      <DebugToolsPanel v-if="settingsStore.debugMode" />
     </template>
 
     <!-- Empty State -->

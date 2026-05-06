@@ -79,7 +79,9 @@ export interface ChatStreamChunk {
 
 // Agent API 类型 — 从 shared/types 统一导入
 export type { TokenUsage, AgentRuntimeStatus } from '../../shared/types'
-import type { TokenUsage, AgentRuntimeStatus } from '../../shared/types'
+import type { TokenUsage, AgentRuntimeStatus, SerializedErrorInfo } from '../../shared/types'
+
+export type { SerializedErrorInfo } from '../../shared/types'
 
 export interface AgentStreamChunk {
   type: 'content' | 'think' | 'tool_start' | 'tool_result' | 'status' | 'done' | 'error'
@@ -90,7 +92,7 @@ export interface AgentStreamChunk {
   toolParams?: Record<string, unknown>
   toolResult?: unknown
   status?: AgentRuntimeStatus
-  error?: string
+  error?: SerializedErrorInfo
   isFinished?: boolean
   /** Token 使用量（type=done 时返回累计值） */
   usage?: TokenUsage
@@ -100,6 +102,7 @@ export interface AgentResult {
   content: string
   toolsUsed: string[]
   toolRounds: number
+  error?: SerializedErrorInfo
 }
 
 /** 单条脱敏规则 */
@@ -170,6 +173,7 @@ export interface AIServiceConfigDisplay {
   model?: string
   baseUrl?: string
   maxTokens?: number
+  apiFormat?: string
   disableThinking?: boolean
   isReasoningModel?: boolean
   customModels?: Array<{ id: string; name: string }>
@@ -607,6 +611,7 @@ export const llmApi = {
     model?: string
     baseUrl?: string
     maxTokens?: number
+    apiFormat?: string
     disableThinking?: boolean
     isReasoningModel?: boolean
     customModels?: Array<{ id: string; name: string }>
@@ -626,6 +631,7 @@ export const llmApi = {
       model?: string
       baseUrl?: string
       maxTokens?: number
+      apiFormat?: string
       disableThinking?: boolean
       isReasoningModel?: boolean
       customModels?: Array<{ id: string; name: string }>
@@ -651,8 +657,25 @@ export const llmApi = {
   /**
    * 验证 API Key（支持自定义 baseUrl 和 model）
    */
-  validateApiKey: (provider: string, apiKey: string, baseUrl?: string, model?: string): Promise<boolean> => {
+  validateApiKey: (
+    provider: string,
+    apiKey: string,
+    baseUrl?: string,
+    model?: string
+  ): Promise<{ success: boolean; error?: string }> => {
     return ipcRenderer.invoke('llm:validateApiKey', provider, apiKey, baseUrl, model)
+  },
+
+  /**
+   * 获取远程模型列表
+   */
+  fetchRemoteModels: (
+    provider: string,
+    apiKey: string,
+    baseUrl?: string,
+    apiFormat?: string
+  ): Promise<{ success: boolean; models?: Array<{ id: string; name: string; ownedBy?: string }>; error?: string }> => {
+    return ipcRenderer.invoke('llm:fetchRemoteModels', provider, apiKey, baseUrl, apiFormat)
   },
 
   /**
@@ -899,7 +922,10 @@ export const agentApi = {
     assistantId?: string,
     skillId?: string | null,
     enableAutoSkill?: boolean
-  ): { requestId: string; promise: Promise<{ success: boolean; result?: AgentResult; error?: string }> } => {
+  ): {
+    requestId: string
+    promise: Promise<{ success: boolean; result?: AgentResult; error?: SerializedErrorInfo }>
+  } => {
     // 防御性处理：确保传给 IPC 的 context 是“可结构化克隆”的纯对象
     // 避免调用方误传入响应式 Proxy（例如 Pinia/Vue state）导致 invoke 失败
     const sanitizedContext: ToolContext = {
@@ -941,7 +967,7 @@ export const agentApi = {
       chatType ?? 'group'
     )
 
-    const promise = new Promise<{ success: boolean; result?: AgentResult; error?: string }>((resolve) => {
+    const promise = new Promise<{ success: boolean; result?: AgentResult; error?: SerializedErrorInfo }>((resolve) => {
       // 监听流式 chunks
       const chunkHandler = (
         _event: Electron.IpcRendererEvent,
@@ -957,7 +983,7 @@ export const agentApi = {
       // 监听完成事件
       const completeHandler = (
         _event: Electron.IpcRendererEvent,
-        data: { requestId: string; result: AgentResult & { error?: string } }
+        data: { requestId: string; result: AgentResult & { error?: SerializedErrorInfo } }
       ) => {
         if (data.requestId === requestId) {
           console.log('[preload] Agent 完成，requestId:', requestId, 'hasError:', !!data.result?.error)
@@ -1001,7 +1027,14 @@ export const agentApi = {
           console.error('[preload] Agent invoke 错误:', error)
           ipcRenderer.removeListener('agent:streamChunk', chunkHandler)
           ipcRenderer.removeListener('agent:complete', completeHandler)
-          resolve({ success: false, error: String(error) })
+          resolve({
+            success: false,
+            error: {
+              name: error instanceof Error ? error.name : null,
+              message: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? (error.stack ?? null) : null,
+            },
+          })
         })
     })
 

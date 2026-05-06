@@ -35,6 +35,10 @@ export interface WordFrequencyParams {
   customPosTags?: string[]
   /** 是否启用停用词过滤，默认 true */
   enableStopwords?: boolean
+  /** 词库类型 */
+  dictType?: string
+  /** 要排除的词语列表（词云过滤方案） */
+  excludeWords?: string[]
 }
 
 export interface PosTagInfo {
@@ -94,25 +98,34 @@ export interface ChatSessionItem {
 // ==================== NLP API ====================
 
 export const nlpApi = {
-  /**
-   * 获取词频统计（用于词云）
-   */
   getWordFrequency: (params: WordFrequencyParams): Promise<WordFrequencyResult> => {
     return ipcRenderer.invoke('nlp:getWordFrequency', params)
   },
 
-  /**
-   * 单文本分词
-   */
   segmentText: (text: string, locale: 'zh-CN' | 'en-US', minLength?: number): Promise<string[]> => {
     return ipcRenderer.invoke('nlp:segmentText', text, locale, minLength)
   },
 
-  /**
-   * 获取词性标签定义
-   */
   getPosTags: (): Promise<PosTagInfo[]> => {
     return ipcRenderer.invoke('nlp:getPosTags')
+  },
+
+  getDictList: (): Promise<
+    Array<{ id: string; label: string; locale: string; downloaded: boolean; fileSize?: number }>
+  > => {
+    return ipcRenderer.invoke('nlp:getDictList')
+  },
+
+  isDictDownloaded: (dictId: string): Promise<boolean> => {
+    return ipcRenderer.invoke('nlp:isDictDownloaded', dictId)
+  },
+
+  downloadDict: (dictId: string): Promise<{ success: boolean; error?: string }> => {
+    return ipcRenderer.invoke('nlp:downloadDict', dictId)
+  },
+
+  deleteDict: (dictId: string): Promise<{ success: boolean; error?: string }> => {
+    return ipcRenderer.invoke('nlp:deleteDict', dictId)
   },
 }
 

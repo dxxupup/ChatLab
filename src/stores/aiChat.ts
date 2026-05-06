@@ -12,7 +12,7 @@ import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
 import { useAssistantStore } from '@/stores/assistant'
 import { useSkillStore } from '@/stores/skill'
-import type { TokenUsage, AgentRuntimeStatus } from '@electron/shared/types'
+import type { TokenUsage, AgentRuntimeStatus, SerializedErrorInfo } from '@electron/shared/types'
 
 // 工具调用记录
 export interface ToolCallRecord {
@@ -49,6 +49,7 @@ export type ContentBlock =
       tool: ToolBlockContent
     }
   | { type: 'skill'; skillId: string; skillName: string }
+  | { type: 'error'; error: SerializedErrorInfo }
 
 // 消息类型
 export interface ChatMessage {
@@ -105,7 +106,6 @@ export interface AIChatSessionState {
   locale: string
   timeFilter?: { startTs: number; endTs: number }
   selectedAssistantId: string | null
-  showAssistantSelector: boolean
   messages: ChatMessage[]
   sourceMessages: SourceMessage[]
   currentKeywords: string[]
@@ -196,7 +196,6 @@ function createSessionState(params: EnsureAIChatSessionParams): AIChatSessionSta
     locale: params.locale,
     timeFilter: params.timeFilter,
     selectedAssistantId: null,
-    showAssistantSelector: true,
     messages: draftBuffer.messages,
     sourceMessages: draftBuffer.sourceMessages,
     currentKeywords: draftBuffer.currentKeywords,
@@ -291,7 +290,6 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     state.sourceMessages = buffer.sourceMessages
     state.currentKeywords = buffer.currentKeywords
     state.selectedAssistantId = buffer.assistantId
-    state.showAssistantSelector = bufferKey === DRAFT_CONVERSATION_KEY && !buffer.assistantId
   }
 
   function renameBufferKey(state: AIChatSessionState, fromKey: string, toKey: string): ConversationBuffer {
@@ -424,20 +422,7 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     const buffer = getOrCreateBuffer(state, getDisplayedBufferKey(state), assistantId)
     buffer.assistantId = assistantId
     state.selectedAssistantId = assistantId
-    state.showAssistantSelector = false
     assistantStore.selectAssistant(assistantId)
-    return true
-  }
-
-  function clearAssistantForSession(chatKey: string): boolean {
-    const state = getSessionState(chatKey)
-    if (!state || state.isAIThinking) return false
-
-    // 返回助手选择页时切回独立草稿 buffer，不污染已有历史对话的助手绑定。
-    const draftBuffer = createConversationBuffer(null)
-    state.conversationBuffers[DRAFT_CONVERSATION_KEY] = draftBuffer
-    bindDisplayedBuffer(state, DRAFT_CONVERSATION_KEY)
-    assistantStore.clearSelection()
     return true
   }
 
@@ -514,13 +499,11 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
       await assistantStore.loadAssistants()
     }
 
-    const rememberedAssistantId = assistantStore.getRememberedAssistantIdForContext(state.chatType, state.locale)
-    if (rememberedAssistantId && selectAssistantForSession(chatKey, rememberedAssistantId)) {
-      startNewConversation(chatKey)
-      return
+    if (!state.selectedAssistantId) {
+      const defaultId = getDefaultGeneralAssistantId(state.locale)
+      selectAssistantForSession(chatKey, defaultId)
     }
-
-    clearAssistantForSession(chatKey)
+    startNewConversation(chatKey)
   }
 
   function startNewConversation(chatKey: string, welcomeMessage?: string): boolean {
@@ -530,7 +513,6 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     const draftBuffer = createConversationBuffer(state.selectedAssistantId)
     state.conversationBuffers[DRAFT_CONVERSATION_KEY] = draftBuffer
     bindDisplayedBuffer(state, DRAFT_CONVERSATION_KEY)
-    state.showAssistantSelector = false
     state.currentToolStatus = null
     state.toolsUsedInCurrentRound = []
     state.isLoadingSource = false
@@ -582,6 +564,8 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     const initialBufferKey = getDisplayedBufferKey(state)
     let resolvedConversationId = initialBufferKey === DRAFT_CONVERSATION_KEY ? null : initialBufferKey
     const targetBuffer = getOrCreateBuffer(state, initialBufferKey, state.selectedAssistantId)
+    // 在 try 外部声明，以便 catch 块能正确引用当前轮次的用户消息
+    let currentUserMessage: ChatMessage | undefined
 
     targetBuffer.assistantId = state.selectedAssistantId
     targetBuffer.loaded = true
@@ -640,6 +624,7 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
         timestamp: Date.now(),
         toolCalls: [],
       }
+      currentUserMessage = userMessage
       targetBuffer.messages.push(userMessage)
 
       const aiMessage: ChatMessage = {
@@ -886,8 +871,12 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
               }
               if (!hasStreamError) {
                 hasStreamError = true
-                appendTextToBlocks(`\n\n❌ 处理失败：${chunk.error || '未知错误'}`)
-                updateAIMessage({ isStreaming: false })
+                const blocks = targetBuffer.messages[aiMessageIndex].contentBlocks || []
+                blocks.push({
+                  type: 'error',
+                  error: chunk.error || { name: null, message: '未知错误', stack: null },
+                })
+                updateAIMessage({ contentBlocks: [...blocks], isStreaming: false })
               }
               setAgentPhase(state, 'error')
               break
@@ -927,11 +916,19 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
 
         await saveConversation(resolvedConversationId, userMessage, targetBuffer.messages[aiMessageIndex])
       } else if (!hasStreamError) {
-        appendTextToBlocks(`\n\n❌ 处理失败：${result.error || '未知错误'}`)
+        const blocks = targetBuffer.messages[aiMessageIndex].contentBlocks || []
+        blocks.push({
+          type: 'error',
+          error: result.error || { name: null, message: '未知错误', stack: null },
+        })
         targetBuffer.messages[aiMessageIndex] = {
           ...targetBuffer.messages[aiMessageIndex],
+          contentBlocks: [...blocks],
           isStreaming: false,
         }
+        await saveConversation(resolvedConversationId, userMessage, targetBuffer.messages[aiMessageIndex])
+      } else {
+        await saveConversation(resolvedConversationId, userMessage, targetBuffer.messages[aiMessageIndex])
       }
 
       return { success: true }
@@ -941,13 +938,21 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
 
       const lastMessage = targetBuffer.messages[targetBuffer.messages.length - 1]
       if (lastMessage && lastMessage.role === 'assistant') {
-        lastMessage.content = `❌ 处理失败：${error instanceof Error ? error.message : '未知错误'}
-
-请检查：
-- 网络连接是否正常
-- API Key 是否有效
-- 配置是否正确`
+        const errInfo: SerializedErrorInfo = {
+          name: error instanceof Error ? error.name : null,
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? (error.stack ?? null) : null,
+        }
+        const blocks = lastMessage.contentBlocks || []
+        blocks.push({ type: 'error', error: errInfo })
+        lastMessage.contentBlocks = [...blocks]
         lastMessage.isStreaming = false
+
+        // 优先使用当前轮次的用户消息，避免多轮对话取到第一条历史消息
+        const userMsg = currentUserMessage || targetBuffer.messages.findLast((m) => m.role === 'user')
+        if (userMsg) {
+          await saveConversation(resolvedConversationId, userMsg, lastMessage)
+        }
       }
 
       return { success: false, reason: 'error' }
@@ -1038,7 +1043,6 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     getActiveTaskState,
     applySessionAssistantSelection,
     selectAssistantForSession,
-    clearAssistantForSession,
     loadConversation,
     focusConversation,
     focusActiveTaskConversation,

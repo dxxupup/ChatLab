@@ -18,6 +18,7 @@ import type {
   ClusterGraphOptions,
   RelationshipStats,
 } from '../../../src/types/analysis'
+import type { LanguagePreferenceResult } from '../../../src/types/quotes/languagePreference'
 import type { FileParseInfo, ConflictCheckResult, MergeParams, MergeResult } from '../../../src/types/format'
 
 // Chat Analysis API
@@ -226,9 +227,7 @@ export const chatApi = {
   /**
    * 获取支持的格式列表
    */
-  getSupportedFormats: (): Promise<
-    Array<{ id: string; name: string; platform: string; extensions: string[] }>
-  > => {
+  getSupportedFormats: (): Promise<Array<{ id: string; name: string; platform: string; extensions: string[] }>> => {
     return ipcRenderer.invoke('chat:getSupportedFormats')
   },
 
@@ -253,6 +252,18 @@ export const chatApi = {
     filter?: { startTs?: number; endTs?: number }
   ): Promise<CatchphraseAnalysis> => {
     return ipcRenderer.invoke('chat:getCatchphraseAnalysis', sessionId, filter)
+  },
+
+  /**
+   * 获取语言偏好分析数据（私聊专用）
+   */
+  getLanguagePreferenceAnalysis: (
+    sessionId: string,
+    locale: string,
+    filter?: { startTs?: number; endTs?: number },
+    dictType?: string
+  ): Promise<LanguagePreferenceResult> => {
+    return ipcRenderer.invoke('chat:getLanguagePreferenceAnalysis', sessionId, locale, filter, dictType)
   },
 
   /**
@@ -339,6 +350,13 @@ export const chatApi = {
    */
   updateMemberAliases: (sessionId: string, memberId: number, aliases: string[]): Promise<boolean> => {
     return ipcRenderer.invoke('chat:updateMemberAliases', sessionId, memberId, aliases)
+  },
+
+  /**
+   * 合并成员（保留消息数更多的一方）
+   */
+  mergeMembers: (sessionId: string, memberId1: number, memberId2: number): Promise<boolean> => {
+    return ipcRenderer.invoke('chat:mergeMembers', sessionId, memberId1, memberId2)
   },
 
   /**

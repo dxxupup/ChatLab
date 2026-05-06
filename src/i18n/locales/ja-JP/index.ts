@@ -10,6 +10,7 @@ import quotes from './quotes.json'
 import members from './members.json'
 import records from './records.json'
 import views from './views.json'
+import wordFilter from './wordFilter.json'
 
 export default {
   common,
@@ -24,4 +25,5 @@ export default {
   members,
   records,
   views,
+  wordFilter,
 }

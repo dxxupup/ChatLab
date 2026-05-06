@@ -13,7 +13,7 @@
   },
   "tabs": {
     "overview": "Overview",
-    "view": "View",
+    "view": "Insights",
     "ranking": "Rankings",
     "groupQuotes": "Quotes",
     "quotes": "Quotes",
@@ -21,15 +21,19 @@
     "member": "Members",
     "ai": "AI Lab",
     "aiChat": "AI Chat",
+    "memory": "Memory",
     "lab": "Lab",
     "sqlLab": "SQL Lab"
+  },
+  "memory": {
+    "comingSoon": "Memory feature coming soon, stay tuned"
   },
   "yearFilter": {
     "allTime": "All Time",
     "year": "{year}"
   },
   "tooltip": {
-    "chatViewer": "Chat Record Viewer",
+    "viewChatRecord": "View Chat History",
     "sessionIndex": "Session Index",
     "incrementalImport": "Import More",
     "memberManagement": "Manage Member"
@@ -53,15 +57,24 @@
   "subTabs": {
     "view": {
       "message": "Messages",
+      "topic": "Topics",
       "interaction": "Interactions",
+      "groupRelationships": "Relationships",
       "ranking": "Rankings",
-      "relationship": "Relationship"
+      "relationship": "Relationship",
+      "languagePreference": "Language Preference"
     },
     "quotes": {
-      "wordcloud": "Word Cloud",
+      "wordcloud": "Topics",
       "hotRepeat": "Hot Repeats",
       "catchphrase": "Catchphrases",
-      "keywordAnalysis": "Keyword Analysis"
+      "keywordAnalysis": "Keyword Analysis",
+      "languagePreference": "Language"
+    },
+    "groupRelationships": {
+      "mentionGraph": "Mention Graph",
+      "mentionRanking": "Mention Ranking",
+      "proximity": "Proximity"
     },
     "member": {
       "memberList": "Member List",
@@ -95,7 +108,9 @@
       "daysStreak": "{count} days",
       "longestStreak": "Longest active streak",
       "activityRate": "Activity Rate",
-      "activeDaysRatio": "Days with messages"
+      "activeDaysRatio": "Days with messages",
+      "lateNightChat": "Late Night Chat",
+      "lateNightRatio": "{ratio}% of all messages"
     },
     "dailyTrend": {
       "title": "Daily Message Trend"
@@ -106,9 +121,18 @@
       "analysisReport": "Analysis Report",
       "totalMessages": "Total Messages",
       "durationDays": "Duration Days",
+      "activeDays": "Active Days",
       "dailyAvgMessages": "Daily Avg"
     },
     "tools": "Quick Tools"
+  },
+  "toolsPanel": {
+    "expand": "Expand tools panel",
+    "collapse": "Collapse tools panel",
+    "lock": "Lock panel",
+    "unlock": "Unlock panel",
+    "miniMode": "Mini mode",
+    "exitMini": "Exit mini mode"
   },
   "messageExport": {
     "title": "Export Records"

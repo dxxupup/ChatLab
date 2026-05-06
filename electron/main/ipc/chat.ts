@@ -481,6 +481,21 @@ export function registerChatHandlers(ctx: IpcContext): void {
   )
 
   /**
+   * 获取语言偏好分析数据（私聊专用）
+   */
+  ipcMain.handle(
+    'chat:getLanguagePreferenceAnalysis',
+    async (_, sessionId: string, locale: string, filter?: { startTs?: number; endTs?: number }, dictType?: string) => {
+      try {
+        return await worker.getLanguagePreferenceAnalysis({ sessionId, locale, timeFilter: filter, dictType })
+      } catch (error) {
+        console.error('Failed to get language preference analysis:', error)
+        return { members: [], sharedWords: [], similarityScore: 0 }
+      }
+    }
+  )
+
+  /**
    * 获取 @ 互动分析数据
    */
   ipcMain.handle(
@@ -632,6 +647,21 @@ export function registerChatHandlers(ctx: IpcContext): void {
       return result
     } catch (error) {
       console.error('Failed to update member alias:', error)
+      return false
+    }
+  })
+
+  /**
+   * 合并成员（保留消息数更多的一方）
+   */
+  ipcMain.handle('chat:mergeMembers', async (_, sessionId: string, memberId1: number, memberId2: number) => {
+    try {
+      await worker.closeDatabase(sessionId)
+      const result = await worker.mergeMembers(sessionId, memberId1, memberId2)
+      if (result) worker.invalidateAnalysisCache(sessionId).catch(() => {})
+      return result
+    } catch (error) {
+      console.error('Failed to merge members:', error)
       return false
     }
   })

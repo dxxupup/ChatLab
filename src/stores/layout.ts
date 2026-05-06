@@ -14,8 +14,18 @@ export const useLayoutStore = defineStore(
     const showChatRecordDrawer = ref(false)
     const chatRecordQuery = ref<ChatRecordQuery | null>(null)
 
+    const isToolsPanelLocked = ref(false)
+    const isToolsPanelMini = ref(false)
+    const toolsPanelPosition = ref<'side' | 'header'>('header')
+    const isToolsPanelOpen = ref(false)
+
     // 截图设置
-    const screenshotMobileAdapt = ref(true) // 截图时开启移动端适配，默认开启
+    const screenshotMobileAdapt = ref(false) // 截图时开启移动端适配，默认关闭
+
+    // 设置弹窗
+    const showSettings = ref(false)
+    const settingsTab = ref<string>('settings')
+    const settingsSubTab = ref<string | null>(null)
 
     /**
      * 切换侧边栏展开/折叠状态
@@ -60,18 +70,58 @@ export const useLayoutStore = defineStore(
       }, 300)
     }
 
+    function toggleToolsPanelLock() {
+      isToolsPanelLocked.value = !isToolsPanelLocked.value
+    }
+
+    function toggleToolsPanelOpen() {
+      isToolsPanelOpen.value = !isToolsPanelOpen.value
+    }
+
+    /**
+     * 打开设置弹窗，可选指定 Tab 和 SubTab
+     */
+    function openSettings(tab?: string, subTab?: string) {
+      settingsTab.value = tab || 'settings'
+      settingsSubTab.value = subTab || null
+      showSettings.value = true
+    }
+
+    function closeSettings() {
+      showSettings.value = false
+    }
+
+    function toggleToolsPanelMini() {
+      isToolsPanelMini.value = !isToolsPanelMini.value
+      if (isToolsPanelMini.value) {
+        isToolsPanelLocked.value = false
+      }
+    }
+
     return {
       isSidebarCollapsed,
+      isToolsPanelLocked,
+      isToolsPanelMini,
+      toolsPanelPosition,
+      isToolsPanelOpen,
       showScreenCaptureModal,
       screenCaptureImage,
       showChatRecordDrawer,
       chatRecordQuery,
       screenshotMobileAdapt,
+      showSettings,
+      settingsTab,
+      settingsSubTab,
       toggleSidebar,
+      toggleToolsPanelLock,
+      toggleToolsPanelOpen,
+      toggleToolsPanelMini,
       openScreenCaptureModal,
       closeScreenCaptureModal,
       openChatRecordDrawer,
       closeChatRecordDrawer,
+      openSettings,
+      closeSettings,
     }
   },
   {
@@ -81,7 +131,7 @@ export const useLayoutStore = defineStore(
         storage: sessionStorage,
       },
       {
-        pick: ['screenshotMobileAdapt'],
+        pick: ['screenshotMobileAdapt', 'isToolsPanelLocked', 'isToolsPanelMini', 'toolsPanelPosition'],
         storage: localStorage,
       },
     ],

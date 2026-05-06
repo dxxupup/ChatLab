@@ -5,6 +5,7 @@ import dayjs from 'dayjs'
 import MarkdownIt from 'markdown-it'
 import type { ContentBlock, ToolBlockContent } from '@/composables/useAIChat'
 import CaptureButton from '@/components/common/CaptureButton.vue'
+import ErrorBlock from './ErrorBlock.vue'
 import { useToast } from '@/composables/useToast'
 
 const { t, te, locale } = useI18n()
@@ -37,6 +38,12 @@ const md = new MarkdownIt({
   linkify: true, // 自动将 URL 转为链接
   typographer: true, // 启用排版优化
 })
+
+md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
+  tokens[idx].attrSet('target', '_blank')
+  tokens[idx].attrSet('rel', 'noopener noreferrer')
+  return self.renderToken(tokens, idx, options)
+}
 
 // 渲染 Markdown 文本
 function renderMarkdown(text: string): string {
@@ -400,6 +407,9 @@ async function handleCopyMarkdown() {
                 </span>
               </div>
             </div>
+
+            <!-- 错误块 -->
+            <ErrorBlock v-else-if="block.type === 'error'" :error="block.error" />
           </template>
 
           <!-- 流式处理中指示器（当最后一个块是已完成的工具块时显示） -->

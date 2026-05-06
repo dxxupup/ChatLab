@@ -11,8 +11,9 @@ import type { LLMProvider, ProviderInfo, AIServiceConfig, AIConfigStore } from '
 import { MAX_CONFIG_COUNT } from './types'
 import { aiLogger } from '../logger'
 import { encryptApiKey, decryptApiKey, isEncrypted } from './crypto'
+import { buildChatLabUserAgentHeaders } from '../../utils/httpHeaders'
 import { t } from '../../i18n'
-import { completeSimple, type Model as PiModel } from '@mariozechner/pi-ai'
+import { completeSimple, type Model as PiModel, type Api as PiApi } from '@mariozechner/pi-ai'
 
 // 新模型系统导出
 export { BUILTIN_PROVIDERS, getBuiltinProviderById } from './provider-registry'
@@ -423,7 +424,37 @@ export function getProviderInfo(provider: LLMProvider): ProviderInfo | null {
 
 // ==================== pi-ai Model 构建 ====================
 
-export function buildPiModel(config: AIServiceConfig): PiModel<'openai-completions'> | PiModel<'google-generative-ai'> {
+/**
+ * 规范化 Anthropic baseUrl：Anthropic SDK 内部会拼接 /v1/messages，
+ * 因此 baseUrl 不应包含 /v1 后缀，否则会导致 /v1/v1/messages 双重路径。
+ */
+function normalizeAnthropicBaseUrl(url: string): string {
+  return url.replace(/\/v1\/?$/, '')
+}
+
+/**
+ * 规范化 OpenAI Compatible baseUrl：
+ * 用户经常忘记在域名后加 /v1，OpenAI SDK 不会自动补全。
+ * 如果 URL 没有以 /v1 结尾且路径部分为空或仅有 /，自动补上。
+ * 已有具体路径（如 /api/v1、/proxy）的不做修改。
+ */
+function normalizeOpenAICompatibleBaseUrl(url: string): string {
+  if (!url) return url
+  const trimmed = url.replace(/\/+$/, '')
+  if (trimmed.endsWith('/v1')) return trimmed
+  try {
+    const parsed = new URL(trimmed)
+    // 仅当路径为空或 "/" 时补全 /v1，避免破坏已有的自定义路径
+    if (parsed.pathname === '/' || parsed.pathname === '') {
+      return trimmed + '/v1'
+    }
+  } catch {
+    // URL 解析失败，不做处理
+  }
+  return trimmed
+}
+
+export function buildPiModel(config: AIServiceConfig): PiModel<PiApi> {
   const providerDef = getBuiltinProviderById(config.provider)
   const providerInfo = getProviderInfo(config.provider)
   const baseUrl = config.baseUrl || providerDef?.defaultBaseUrl || providerInfo?.defaultBaseUrl || ''
@@ -431,7 +462,14 @@ export function buildPiModel(config: AIServiceConfig): PiModel<'openai-completio
 
   validateProviderBaseUrl(config.provider, baseUrl)
 
-  if (config.provider === 'gemini') {
+  const BUILTIN_PROVIDER_API: Record<string, PiApi> = {
+    gemini: 'google-generative-ai',
+    anthropic: 'anthropic-messages',
+  }
+
+  const apiFormat: PiApi = (config.apiFormat as PiApi) || BUILTIN_PROVIDER_API[config.provider] || 'openai-completions'
+
+  if (apiFormat === 'google-generative-ai') {
     return {
       id: modelId,
       name: modelId,
@@ -446,18 +484,146 @@ export function buildPiModel(config: AIServiceConfig): PiModel<'openai-completio
     }
   }
 
+  if (apiFormat === 'anthropic-messages') {
+    return {
+      id: modelId,
+      name: modelId,
+      api: 'anthropic-messages',
+      provider: 'anthropic',
+      baseUrl: normalizeAnthropicBaseUrl(baseUrl),
+      reasoning: false,
+      input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200000,
+      maxTokens: config.maxTokens ?? 8192,
+    }
+  }
+
+  // openai-compatible + openai-completions/openai-responses：自动补全 /v1（用户经常忘记）
+  const resolvedBaseUrl =
+    config.provider === 'openai-compatible' && (apiFormat === 'openai-completions' || apiFormat === 'openai-responses')
+      ? normalizeOpenAICompatibleBaseUrl(baseUrl)
+      : baseUrl
+
   return {
     id: modelId,
     name: modelId,
-    api: 'openai-completions',
+    api: apiFormat,
     provider: config.provider,
-    baseUrl,
+    baseUrl: resolvedBaseUrl,
+    headers: config.provider === 'openai-compatible' ? buildChatLabUserAgentHeaders() : undefined,
     reasoning: config.isReasoningModel ?? false,
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128000,
     maxTokens: config.maxTokens ?? 4096,
     compat: config.disableThinking ? { thinkingFormat: 'qwen' } : undefined,
+  }
+}
+
+// ==================== 远程模型列表获取 ====================
+
+export interface RemoteModel {
+  id: string
+  name: string
+  ownedBy?: string
+}
+
+export interface FetchRemoteModelsResult {
+  success: boolean
+  models?: RemoteModel[]
+  error?: string
+}
+
+/**
+ * 根据 API 格式决定 baseUrl 到 /models 端点的映射：
+ * - openai-completions / openai-responses → {resolvedBaseUrl}/models
+ * - google-generative-ai → {baseUrl}/v1beta/models?key={apiKey}
+ * - anthropic-messages → 不支持
+ */
+export async function fetchRemoteModels(
+  provider: string,
+  apiKey: string,
+  baseUrl?: string,
+  apiFormat?: string
+): Promise<FetchRemoteModelsResult> {
+  const effectiveApiFormat = apiFormat || 'openai-completions'
+
+  if (effectiveApiFormat === 'anthropic-messages') {
+    return { success: false, error: 'Anthropic does not support model listing via API' }
+  }
+
+  const rawBaseUrl = baseUrl || getBuiltinProviderById(provider)?.defaultBaseUrl || ''
+  if (!rawBaseUrl) {
+    return { success: false, error: 'No base URL provided' }
+  }
+
+  const abortController = new AbortController()
+  const timeout = setTimeout(() => abortController.abort(), 15000)
+
+  try {
+    let url: string
+    const headers: Record<string, string> = {
+      ...buildChatLabUserAgentHeaders(),
+    }
+
+    if (effectiveApiFormat === 'google-generative-ai') {
+      const trimmed = rawBaseUrl.replace(/\/+$/, '').replace(/\/v1(beta)?$/, '')
+      url = `${trimmed}/v1beta/models?key=${apiKey}`
+    } else {
+      // openai-completions / openai-responses: resolve /v1 auto
+      let resolved = rawBaseUrl.replace(/\/+$/, '')
+      try {
+        const parsed = new URL(resolved)
+        if (!resolved.endsWith('/v1') && (parsed.pathname === '/' || parsed.pathname === '')) {
+          resolved = resolved + '/v1'
+        }
+      } catch {
+        // ignore
+      }
+      url = `${resolved}/models`
+      headers['Authorization'] = `Bearer ${apiKey}`
+    }
+
+    aiLogger.info('LLM', 'Fetching remote models', { url: url.replace(/key=[^&]+/, 'key=***'), provider })
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers,
+      signal: abortController.signal,
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      return { success: false, error: `HTTP ${response.status}: ${body.slice(0, 200)}` }
+    }
+
+    const json = await response.json()
+
+    let models: RemoteModel[]
+
+    if (effectiveApiFormat === 'google-generative-ai') {
+      const geminiModels = (json.models || []) as Array<{ name?: string; displayName?: string }>
+      models = geminiModels.map((m) => {
+        const id = (m.name || '').replace(/^models\//, '')
+        return { id, name: m.displayName || id, ownedBy: 'google' }
+      })
+    } else {
+      // OpenAI-standard format: { data: [{ id, owned_by }] }
+      const data = (json.data || []) as Array<{ id?: string; owned_by?: string }>
+      models = data.filter((m) => m.id).map((m) => ({ id: m.id!, name: m.id!, ownedBy: m.owned_by }))
+    }
+
+    aiLogger.info('LLM', `Fetched ${models.length} remote models`, { provider })
+    return { success: true, models }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes('aborted') || message.includes('AbortError')) {
+      return { success: false, error: 'Request timed out (15s)' }
+    }
+    return { success: false, error: message }
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
@@ -485,7 +651,7 @@ export async function validateApiKey(
     const timeout = setTimeout(() => abortController.abort(), 15000)
 
     try {
-      await completeSimple(
+      const result = await completeSimple(
         piModel,
         {
           messages: [{ role: 'user', content: 'Hi', timestamp: Date.now() }],
@@ -496,6 +662,9 @@ export async function validateApiKey(
           signal: abortController.signal,
         }
       )
+      if (result.stopReason === 'error' || result.stopReason === 'aborted') {
+        return { success: false, error: result.errorMessage || 'Connection failed' }
+      }
       return { success: true }
     } finally {
       clearTimeout(timeout)

@@ -1,10 +1,10 @@
 {
   "name": "ChatLab",
-  "version": "0.16.1",
+  "version": "0.18.4",
   "description": "本地化的聊天记录分析工具，通过 SQL 和 AI Agent 回顾你的社交记忆",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hellodigua/ChatLab.git"
+    "url": "git+https://github.com/ChatLab/ChatLab.git"
   },
   "author": "digua <hello@digua.me>",
   "main": "./out/main/index.js",
@@ -54,7 +54,6 @@
     "gray-matter": "^4.0.3",
     "i18next": "^25.8.5",
     "markdown-it": "^14.1.0",
-    "node-machine-id": "^1.1.12",
     "stream-json": "^1.9.1",
     "vue-i18n": "^11.2.8"
   },

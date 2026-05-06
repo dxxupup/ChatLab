@@ -13,7 +13,7 @@
   },
   "tabs": {
     "overview": "概要",
-    "view": "閲覧",
+    "view": "インサイト",
     "ranking": "ランキング",
     "groupQuotes": "名言集",
     "quotes": "名言集",
@@ -21,15 +21,19 @@
     "member": "メンバー",
     "ai": "AIラボ",
     "aiChat": "AIチャット",
+    "memory": "メモリー",
     "lab": "ラボ",
     "sqlLab": "SQLラボ"
+  },
+  "memory": {
+    "comingSoon": "メモリー機能は近日公開予定です。お楽しみに"
   },
   "yearFilter": {
     "allTime": "全期間",
     "year": "{year}年"
   },
   "tooltip": {
-    "chatViewer": "チャット記録ビューア",
+    "viewChatRecord": "チャット履歴を見る",
     "sessionIndex": "セッション索引",
     "incrementalImport": "追加インポート",
     "memberManagement": "メンバー管理"
@@ -53,15 +57,24 @@
   "subTabs": {
     "view": {
       "message": "メッセージ",
+      "topic": "トピック",
       "interaction": "インタラクション分析",
+      "groupRelationships": "グループ関係",
       "ranking": "ランキング",
-      "relationship": "関係"
+      "relationship": "関係",
+      "languagePreference": "言語傾向"
     },
     "quotes": {
-      "wordcloud": "ワードクラウド",
+      "wordcloud": "トピック",
       "hotRepeat": "盛り上がった復唱",
       "catchphrase": "口癖",
-      "keywordAnalysis": "キーワード分析"
+      "keywordAnalysis": "キーワード分析",
+      "languagePreference": "言語傾向"
+    },
+    "groupRelationships": {
+      "mentionGraph": "@ 関係図",
+      "mentionRanking": "@ ランキング",
+      "proximity": "発言の近接度"
     },
     "member": {
       "memberList": "メンバー一覧",
@@ -95,7 +108,9 @@
       "daysStreak": "{count} 日間",
       "longestStreak": "最長連続アクティブ",
       "activityRate": "アクティブ率",
-      "activeDaysRatio": "メッセージのある日の割合"
+      "activeDaysRatio": "メッセージのある日の割合",
+      "lateNightChat": "深夜チャット",
+      "lateNightRatio": "全メッセージの {ratio}%"
     },
     "dailyTrend": {
       "title": "日別メッセージトレンド"
@@ -106,9 +121,18 @@
       "analysisReport": "分析レポート",
       "totalMessages": "メッセージ総数",
       "durationDays": "期間日数",
+      "activeDays": "アクティブ日数",
       "dailyAvgMessages": "日平均メッセージ"
     },
     "tools": "よく使うツール"
+  },
+  "toolsPanel": {
+    "expand": "ツールパネルを展開",
+    "collapse": "ツールパネルを折りたたむ",
+    "lock": "パネルを固定",
+    "unlock": "パネルの固定を解除",
+    "miniMode": "ミニモード",
+    "exitMini": "ミニモードを終了"
   },
   "messageExport": {
     "title": "チャット記録をエクスポート"

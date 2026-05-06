@@ -1,42 +1,105 @@
 /**
  * 分词器模块
  * 中文使用 @node-rs/jieba，其他语言使用 Intl.Segmenter
+ *
+ * 支持多词库：默认内置简体中文词库，可通过 dictType 加载繁体中文等自定义词库。
+ * 自定义词库文件存储在 nlpDir 目录下（由 Worker 初始化时传入）。
  */
 
-import type { SupportedLocale, PosFilterMode, PosTagInfo } from './types'
+import * as fs from 'fs'
+import * as path from 'path'
+import type { SupportedLocale, PosFilterMode, PosTagInfo, DictType } from './types'
 import { isStopword } from './stopwords'
 
-// Jieba 实例类型
+export type { DictType }
+
 interface JiebaInstance {
   cut: (text: string, hmm?: boolean) => string[]
   tag: (text: string) => Array<{ tag: string; word: string }>
 }
 
-// Jieba 实例（延迟初始化）
-let jiebaInstance: JiebaInstance | null = null
+let _nlpDir: string | null = null
+
+const jiebaInstances = new Map<DictType, JiebaInstance>()
 
 /**
- * 获取 Jieba 实例（延迟加载）
+ * 由 Worker 初始化时调用，设置自定义词库目录路径
  */
-function getJieba(): JiebaInstance {
-  if (!jiebaInstance) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { Jieba } = require('@node-rs/jieba')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { dict } = require('@node-rs/jieba/dict')
-      jiebaInstance = Jieba.withDict(dict)
-      console.log('[NLP] jieba module loaded')
-    } catch (error) {
-      console.error('[NLP] Failed to load jieba module:', error)
-      throw new Error('jieba 模块加载失败')
+export function initNlpDir(nlpDir: string): void {
+  _nlpDir = nlpDir
+}
+
+/**
+ * 检查词库文件是否存在
+ */
+function existsDictOnDisk(dictId: string): boolean {
+  if (!_nlpDir) return false
+  const dictPath = path.join(_nlpDir, `${dictId}.dict`)
+  return fs.existsSync(dictPath)
+}
+
+/**
+ * 尝试从 nlpDir 加载词库文件，返回 Buffer 或 null
+ */
+function tryLoadDictFromDisk(dictId: string): Buffer | null {
+  if (!_nlpDir) return null
+  const dictPath = path.join(_nlpDir, `${dictId}.dict`)
+  if (!fs.existsSync(dictPath)) return null
+  try {
+    return fs.readFileSync(dictPath)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 获取 Jieba 实例（支持多词库）
+ *
+ * 所有词库均从 nlpDir 磁盘加载（由应用启动时自动下载）。
+ * default 和 zh-CN 共用同一实例。
+ */
+export function getJieba(dictType: DictType = 'default'): JiebaInstance {
+  const effectiveType = dictType === 'default' ? 'zh-CN' : dictType
+  const cached = jiebaInstances.get(effectiveType)
+  if (cached) {
+    // 仅当磁盘词库仍存在时复用缓存；词库被删除后立即失效，避免继续使用陈旧实例。
+    // 使用 existsDictOnDisk 而不是 tryLoadDictFromDisk，避免在缓存检查时读取文件内容
+    if (existsDictOnDisk(effectiveType)) return cached
+    jiebaInstances.delete(effectiveType)
+    console.log(`[NLP] jieba cache invalidated (dict missing): ${effectiveType}`)
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Jieba } = require('@node-rs/jieba')
+
+    let instance: JiebaInstance
+    const diskDict = tryLoadDictFromDisk(effectiveType)
+    if (diskDict) {
+      instance = Jieba.withDict(diskDict)
+      console.log(`[NLP] jieba dict loaded: ${effectiveType} (${diskDict.length} bytes)`)
+      jiebaInstances.set(effectiveType, instance)
+    } else {
+      // 词库缺失时仍保留 jieba 能力，避免 FTS 退化为空格切分。
+      // 缓存 fallback 实例以提升性能，但在词库下载/删除时会通过 clearJiebaInstance 主动失效缓存
+      instance = new Jieba()
+      console.warn(`[NLP] jieba dict missing: ${effectiveType}, fallback to built-in tokenizer`)
+      jiebaInstances.set(effectiveType, instance)
     }
+
+    return instance
+  } catch (error) {
+    console.error(`[NLP] Failed to load jieba module (dict=${effectiveType}):`, error)
+    throw new Error(`jieba 模块加载失败 (${effectiveType})`)
   }
-  const instance = jiebaInstance
-  if (!instance) {
-    throw new Error('jieba 模块未初始化')
-  }
-  return instance
+}
+
+/**
+ * 清除指定词库的缓存实例（词库更新后调用）
+ */
+export function clearJiebaInstance(dictType: DictType): void {
+  jiebaInstances.delete(dictType)
+  console.log(`[NLP] jieba instance cleared: ${dictType}`)
 }
 
 /**
@@ -147,6 +210,8 @@ interface ChineseSegmentOptions {
   posFilterMode?: PosFilterMode
   /** 自定义词性过滤列表 */
   customPosTags?: string[]
+  /** 词库类型 */
+  dictType?: DictType
 }
 
 /**
@@ -156,12 +221,13 @@ interface ChineseSegmentOptions {
 export function collectPosTagStats(
   texts: string[],
   minWordLength: number = 2,
-  enableStopwords: boolean = true
+  enableStopwords: boolean = true,
+  dictType: DictType = 'default'
 ): Map<string, number> {
   const posStats = new Map<string, number>()
 
   try {
-    const jieba = getJieba()
+    const jieba = getJieba(dictType)
 
     for (const text of texts) {
       const cleaned = cleanText(text)
@@ -191,36 +257,31 @@ export function collectPosTagStats(
  * @param options 分词选项
  */
 function segmentChinese(text: string, options: ChineseSegmentOptions = {}): string[] {
-  const { posFilterMode = 'meaningful', customPosTags } = options
+  const { posFilterMode = 'meaningful', customPosTags, dictType = 'default' } = options
   const cleaned = cleanText(text)
   if (!cleaned) return []
 
   try {
-    const jieba = getJieba()
+    const jieba = getJieba(dictType)
 
-    // 全部模式：直接分词，不做词性过滤
     if (posFilterMode === 'all') {
       return jieba.cut(cleaned, false)
     }
 
-    // 使用词性标注
     const tagged = jieba.tag(cleaned)
 
-    // 根据模式过滤
     let allowedTags: Set<string>
     if (posFilterMode === 'custom' && customPosTags) {
       allowedTags = new Set(customPosTags)
     } else {
-      // meaningful 模式
       allowedTags = MEANINGFUL_POS_TAGS
     }
 
     return tagged.filter((item) => allowedTags.has(item.tag)).map((item) => item.word)
   } catch (error) {
     console.error('[NLP] Chinese segmentation failed:', error)
-    // 降级：使用简单分词
     try {
-      const jieba = getJieba()
+      const jieba = getJieba('default')
       return jieba.cut(cleaned, false)
     } catch {
       return cleaned.split('')
@@ -277,6 +338,8 @@ export interface SegmentOptions {
   customPosTags?: string[]
   /** 是否启用停用词过滤 */
   enableStopwords?: boolean
+  /** 词库类型（仅中文有效） */
+  dictType?: DictType
 }
 
 /**
@@ -287,7 +350,13 @@ export interface SegmentOptions {
  * @returns 过滤后的分词结果
  */
 export function segment(text: string, locale: SupportedLocale, options: SegmentOptions = {}): string[] {
-  const { minLength, posFilterMode = 'meaningful', customPosTags, enableStopwords = true } = options
+  const {
+    minLength,
+    posFilterMode = 'meaningful',
+    customPosTags,
+    enableStopwords = true,
+    dictType = 'default',
+  } = options
   const isChinese = locale.startsWith('zh')
   const isJapanese = locale === 'ja-JP'
   const defaultMinLength = isChinese || isJapanese ? 2 : 3
@@ -296,7 +365,7 @@ export function segment(text: string, locale: SupportedLocale, options: SegmentO
   let words: string[]
 
   if (isChinese) {
-    words = segmentChinese(text, { posFilterMode, customPosTags })
+    words = segmentChinese(text, { posFilterMode, customPosTags, dictType })
   } else if (isJapanese) {
     words = segmentJapanese(text)
   } else {
@@ -312,6 +381,17 @@ export function segment(text: string, locale: SupportedLocale, options: SegmentO
 export interface BatchSegmentOptions extends SegmentOptions {
   minCount?: number
   topN?: number
+  /** 要排除的词语列表 */
+  excludeWords?: string[]
+}
+
+export interface BatchSegmentResult {
+  /** topN 裁剪后的词频 Map */
+  words: Map<string, number>
+  /** 裁剪前的去重词数（过滤低频词后） */
+  uniqueWords: number
+  /** 裁剪前的总词次（过滤低频词后所有词的出现次数之和） */
+  totalWords: number
 }
 
 /**
@@ -319,33 +399,49 @@ export interface BatchSegmentOptions extends SegmentOptions {
  * @param texts 文本数组
  * @param locale 语言
  * @param options 选项
- * @returns 词频 Map
  */
 export function batchSegmentWithFrequency(
   texts: string[],
   locale: SupportedLocale,
   options: BatchSegmentOptions = {}
-): Map<string, number> {
-  const { minLength, minCount = 2, topN = 100, posFilterMode, customPosTags, enableStopwords } = options
+): BatchSegmentResult {
+  const {
+    minLength,
+    minCount = 2,
+    topN = 100,
+    posFilterMode,
+    customPosTags,
+    enableStopwords,
+    dictType,
+    excludeWords,
+  } = options
   const wordFrequency = new Map<string, number>()
+  const excludeSet = excludeWords?.length ? new Set(excludeWords.map((w) => w.toLowerCase())) : null
 
   for (const text of texts) {
-    const words = segment(text, locale, { minLength, posFilterMode, customPosTags, enableStopwords })
+    const words = segment(text, locale, { minLength, posFilterMode, customPosTags, enableStopwords, dictType })
     for (const word of words) {
+      if (excludeSet && excludeSet.has(word.toLowerCase())) continue
       wordFrequency.set(word, (wordFrequency.get(word) || 0) + 1)
     }
   }
 
   // 过滤低频词
   const filtered = new Map<string, number>()
+  let totalWords = 0
   for (const [word, count] of wordFrequency) {
     if (count >= minCount) {
       filtered.set(word, count)
+      totalWords += count
     }
   }
 
   // 排序并取 topN
   const sorted = [...filtered.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN)
 
-  return new Map(sorted)
+  return {
+    words: new Map(sorted),
+    uniqueWords: filtered.size,
+    totalWords,
+  }
 }

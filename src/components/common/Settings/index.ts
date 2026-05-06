@@ -1,0 +1,4 @@
+export { default as AISettingsTab } from './AISettingsTab.vue'
+export { default as AIModelConfigTab } from './AI/AIModelConfigTab.vue'
+export { default as AIModelEditModal } from './AI/AIModelEditModal.vue'
+export { default as AIPromptConfigTab } from './AI/AIPromptConfigTab.vue'

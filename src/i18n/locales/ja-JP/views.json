@@ -43,7 +43,35 @@
     "lengthGroupedTitle": "文字数区間分布",
     "lengthGroupedHint": "5文字ごとにグループ化",
     "noTextMessages": "テキストメッセージがありません",
-    "noData": "データがありません"
+    "noData": "データがありません",
+    "profile": {
+      "totalMessages": "総メッセージ",
+      "textMessages": "テキストメッセージ",
+      "avgLength": "平均文字数",
+      "avgLengthUnit": "{count} 文字/件",
+      "mediaRatio": "メディア比率",
+      "textExpression": "テキスト表現力",
+      "textExpressionDesc": "最長メッセージ {count} 文字",
+      "mediaRichness": "メディアの豊かさ",
+      "shortMaster": "短文マスター",
+      "shortMasterDesc": "5文字以下 {count} 件",
+      "essayLover": "長文好き",
+      "essayLoverDesc": "{threshold}文字以上のメッセージ",
+      "peakRecord": "ピーク記録",
+      "peakRecordDesc": "1日最多 {count} 件",
+      "topHours": "最もアクティブな時間帯",
+      "images": "画像",
+      "emoji": "スタンプ",
+      "voiceVideo": "音声/動画",
+      "typeDistribution": "メッセージ種類",
+      "hourlyDistribution": "24h アクティビティ",
+      "watermark": "メッセージレポート",
+      "heroLine1Prefix": "合計で",
+      "heroLine1Suffix": "件のメッセージを交わしました",
+      "heroLine2Prefix": "1件平均",
+      "heroLine2Middle": "文字、そのうち",
+      "heroLine2Suffix": "がテキスト以外"
+    }
   },
   "interaction": {
     "mentionGraph": "メンション関係図",
@@ -110,11 +138,12 @@
       "total": "合計 {count} 回の破氷"
     },
     "responseLatency": {
-      "title": "返信時間",
+      "title": "返信速度",
       "hint": "相手がメッセージを送った後、平均何分で返信するか",
       "count": "{count} 回の返信",
       "seconds": "{n} 秒",
       "minutes": "{n} 分",
+      "minutesSeconds": "{m}分{s}秒",
       "hours": "{n} 時間",
       "hoursMinutes": "{h} 時間 {m} 分"
     },

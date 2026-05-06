@@ -32,6 +32,8 @@
       "previewUnavailable": "暂无可预览的技能提示词",
       "presetMore": "更多",
       "presetCollapse": "收起",
+      "quickAsk": "快速提问",
+      "editQuickAsk": "编辑快速提问",
       "send": "发送",
       "needMoreThanSkill": "仅选择技能还不能发送，请继续输入具体问题",
       "needQuestion": "请输入问题后再发送"
@@ -174,15 +176,40 @@
     "conversation": {
       "title": "AI对话记录",
       "newChat": "新对话",
+      "newConversation": "新建对话",
       "empty": "暂无历史记录",
       "startNew": "开始新对话",
       "titlePlaceholder": "输入标题...",
+      "group": {
+        "last7Days": "最近 7 天",
+        "last30Days": "最近 30 天"
+      },
+      "rename": "重命名",
+      "delete": "删除",
       "export": {
         "createdAt": "创建时间",
         "user": "用户",
         "assistant": "AI 助手",
         "noMessages": "对话没有消息"
       }
+    },
+    "error": {
+      "title": "处理失败",
+      "detail": "错误详情",
+      "viewDetail": "查看详情",
+      "requestUrl": "请求路径",
+      "statusCode": "状态码",
+      "responseBody": "响应内容",
+      "responseHeaders": "响应头",
+      "requestBody": "请求体",
+      "name": "错误名称",
+      "message": "错误信息",
+      "stack": "堆栈信息",
+      "cause": "错误原因",
+      "provider": "服务商",
+      "copyAll": "复制全部",
+      "copied": "已复制到剪贴板",
+      "unknown": "未知错误"
     },
     "dataSource": {
       "title": "数据源",
@@ -256,11 +283,12 @@
   "assistant": {
     "selector": {
       "title": "选择一个助手开始对话",
+      "heroTitlePrefix": "使用",
+      "heroTitleSuffix": "开始对话",
       "subtitle": "每个助手擅长不同类型的分析任务，选择最适合你需求的助手",
       "noAssistants": "当前场景暂无可用助手",
       "manage": "管理助手",
-      "addNew": "新增助手",
-      "rememberSelection": "7天内记住此选择"
+      "addNew": "新增助手"
     },
     "config": {
       "viewTitle": "查看配置",

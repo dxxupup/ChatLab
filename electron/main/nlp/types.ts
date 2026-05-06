@@ -48,6 +48,9 @@ export interface WordFrequencyResult {
 /** 词性过滤模式 */
 export type PosFilterMode = 'all' | 'meaningful' | 'custom'
 
+/** 词库类型 */
+export type DictType = 'default' | 'zh-CN' | 'zh-TW'
+
 /** 词频统计参数 */
 export interface WordFrequencyParams {
   /** 会话 ID */
@@ -73,6 +76,10 @@ export interface WordFrequencyParams {
   customPosTags?: string[]
   /** 是否启用停用词过滤，默认 true */
   enableStopwords?: boolean
+  /** 词库类型：default=内置简体中文, zh-TW=繁体中文 */
+  dictType?: DictType
+  /** 要排除的词语列表（词云过滤方案） */
+  excludeWords?: string[]
 }
 
 /** 词性标签信息 */

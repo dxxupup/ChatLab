@@ -1,6 +1,6 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { AnalysisSession, MessageType, ImportProgress, ExportProgress } from '../../src/types/base'
-import type { TokenUsage, AgentRuntimeStatus } from '../shared/types'
+import type { TokenUsage, AgentRuntimeStatus, SerializedErrorInfo } from '../shared/types'
 import type {
   MemberActivity,
   MemberNameHistory,
@@ -17,6 +17,7 @@ import type {
   RelationshipStats,
 } from '../../src/types/analysis'
 import type { FileParseInfo, ConflictCheckResult, MergeParams, MergeResult } from '../../src/types/format'
+import type { LanguagePreferenceResult } from '../../src/types/quotes/languagePreference'
 import type { TableSchema, SQLResult } from '../../src/components/analysis/SQLLab/types'
 
 interface TimeFilter {
@@ -127,6 +128,12 @@ interface ChatApi {
   getSupportedFormats: () => Promise<Array<{ id: string; name: string; platform: string; extensions: string[] }>>
   onImportProgress: (callback: (progress: ImportProgress) => void) => () => void
   getCatchphraseAnalysis: (sessionId: string, filter?: TimeFilter) => Promise<CatchphraseAnalysis>
+  getLanguagePreferenceAnalysis: (
+    sessionId: string,
+    locale: string,
+    filter?: TimeFilter,
+    dictType?: string
+  ) => Promise<LanguagePreferenceResult>
   getMentionAnalysis: (sessionId: string, filter?: TimeFilter) => Promise<MentionAnalysis>
   getMentionGraph: (sessionId: string, filter?: TimeFilter) => Promise<MentionGraphData>
   getClusterGraph: (sessionId: string, filter?: TimeFilter, options?: ClusterGraphOptions) => Promise<ClusterGraphData>
@@ -149,6 +156,7 @@ interface ChatApi {
     totalPages: number
   }>
   updateMemberAliases: (sessionId: string, memberId: number, aliases: string[]) => Promise<boolean>
+  mergeMembers: (sessionId: string, memberId1: number, memberId2: number) => Promise<boolean>
   deleteMember: (sessionId: string, memberId: number) => Promise<boolean>
   // 插件系统
   pluginQuery: <T = Record<string, any>>(sessionId: string, sql: string, params?: any[]) => Promise<T[]>
@@ -205,6 +213,8 @@ interface Api {
     getAnalyticsEnabled: () => Promise<boolean>
     setAnalyticsEnabled: (enabled: boolean) => Promise<{ success: boolean }>
     relaunch: () => Promise<void>
+    getOpenAtLogin: () => Promise<boolean>
+    setOpenAtLogin: (enabled: boolean) => Promise<{ success: boolean; error?: string }>
   }
 }
 
@@ -464,6 +474,7 @@ interface AIServiceConfigDisplay {
   model?: string
   baseUrl?: string
   maxTokens?: number
+  apiFormat?: string
   disableThinking?: boolean
   isReasoningModel?: boolean
   createdAt: number
@@ -521,8 +532,10 @@ interface LlmApi {
     model?: string
     baseUrl?: string
     maxTokens?: number
+    apiFormat?: string
     disableThinking?: boolean
     isReasoningModel?: boolean
+    customModels?: Array<{ id: string; name: string }>
   }) => Promise<{ success: boolean; config?: AIServiceConfigDisplay; error?: string }>
   updateConfig: (
     id: string,
@@ -533,7 +546,10 @@ interface LlmApi {
       model?: string
       baseUrl?: string
       maxTokens?: number
+      apiFormat?: string
       disableThinking?: boolean
+      isReasoningModel?: boolean
+      customModels?: Array<{ id: string; name: string }>
     }
   ) => Promise<{ success: boolean; error?: string }>
   deleteConfig: (id?: string) => Promise<{ success: boolean; error?: string }>
@@ -546,6 +562,16 @@ interface LlmApi {
     baseUrl?: string,
     model?: string
   ) => Promise<{ success: boolean; error?: string }>
+  fetchRemoteModels: (
+    provider: string,
+    apiKey: string,
+    baseUrl?: string,
+    apiFormat?: string
+  ) => Promise<{
+    success: boolean
+    models?: Array<{ id: string; name: string; ownedBy?: string }>
+    error?: string
+  }>
   hasConfig: () => Promise<boolean>
 
   // 聊天功能
@@ -656,7 +682,7 @@ interface AgentStreamChunk {
   toolParams?: Record<string, unknown>
   toolResult?: unknown
   status?: AgentRuntimeStatus
-  error?: string
+  error?: SerializedErrorInfo
   isFinished?: boolean
   /** Token 使用量（type=done 时返回累计值） */
   usage?: TokenUsage
@@ -668,6 +694,7 @@ interface AgentResult {
   toolRounds: number
   /** 总 Token 使用量（累计所有 LLM 调用） */
   totalUsage?: TokenUsage
+  error?: SerializedErrorInfo
 }
 
 /** Owner 信息（当前用户在对话中的身份） */
@@ -752,7 +779,7 @@ interface AgentApi {
     assistantId?: string,
     skillId?: string | null,
     enableAutoSkill?: boolean
-  ) => { requestId: string; promise: Promise<{ success: boolean; result?: AgentResult; error?: string }> }
+  ) => { requestId: string; promise: Promise<{ success: boolean; result?: AgentResult; error?: SerializedErrorInfo }> }
   abort: (requestId: string) => Promise<{ success: boolean; error?: string }>
 }
 
@@ -899,7 +926,7 @@ interface NetworkApi {
 }
 
 // NLP API 类型 - 自然语言处理功能
-type SupportedLocale = 'zh-CN' | 'en-US'
+type SupportedLocale = 'zh-CN' | 'en-US' | 'zh-TW' | 'ja-JP'
 
 /** 词性过滤模式 */
 type PosFilterMode = 'all' | 'meaningful' | 'custom'
@@ -923,6 +950,16 @@ interface WordFrequencyResult {
   posTagStats?: PosTagStat[]
 }
 
+type DictType = 'default' | 'zh-CN' | 'zh-TW'
+
+interface DictInfo {
+  id: string
+  label: string
+  locale: string
+  downloaded: boolean
+  fileSize?: number
+}
+
 interface WordFrequencyParams {
   sessionId: string
   locale: SupportedLocale
@@ -937,6 +974,10 @@ interface WordFrequencyParams {
   customPosTags?: string[]
   /** 是否启用停用词过滤，默认 true */
   enableStopwords?: boolean
+  /** 词库类型：default=内置简体中文, zh-TW=繁体中文 */
+  dictType?: DictType
+  /** 要排除的词语列表（词云过滤方案） */
+  excludeWords?: string[]
 }
 
 /** 词性标签信息 */
@@ -951,6 +992,10 @@ interface NlpApi {
   getWordFrequency: (params: WordFrequencyParams) => Promise<WordFrequencyResult>
   segmentText: (text: string, locale: SupportedLocale, minLength?: number) => Promise<string[]>
   getPosTags: () => Promise<PosTagInfo[]>
+  getDictList: () => Promise<DictInfo[]>
+  isDictDownloaded: (dictId: string) => Promise<boolean>
+  downloadDict: (dictId: string) => Promise<{ success: boolean; error?: string }>
+  deleteDict: (dictId: string) => Promise<{ success: boolean; error?: string }>
 }
 
 // ChatLab API 服务类型
@@ -968,19 +1013,47 @@ interface ApiServerStatus {
   error: string | null
 }
 
-interface DataSource {
+interface ImportSession {
   id: string
   name: string
-  url: string
-  token: string
-  intervalMinutes: number
-  enabled: boolean
+  remoteSessionId: string
   targetSessionId: string
   lastPullAt: number
   lastStatus: 'idle' | 'success' | 'error'
   lastError: string
   lastNewMessages: number
+}
+
+interface DataSource {
+  id: string
+  name: string
+  baseUrl: string
+  token: string
+  intervalMinutes: number
+  pullLimit: number
+  enabled: boolean
   createdAt: number
+  sessions: ImportSession[]
+}
+
+interface RemoteSession {
+  id: string
+  name: string
+  platform: string
+  type: string
+  messageCount?: number
+  memberCount?: number
+  lastMessageAt?: number
+}
+
+interface RemoteSessionDiscoveryPage {
+  hasMore: boolean
+  nextCursor?: string
+}
+
+interface RemoteSessionDiscoveryResult {
+  sessions: RemoteSession[]
+  page?: RemoteSessionDiscoveryPage
 }
 
 interface ApiServerApi {
@@ -991,13 +1064,33 @@ interface ApiServerApi {
   regenerateToken: () => Promise<ApiServerConfig>
   onStartupError: (callback: (data: { error: string }) => void) => () => void
   getDataSources: () => Promise<DataSource[]>
-  addDataSource: (
-    partial: Omit<DataSource, 'id' | 'createdAt' | 'lastPullAt' | 'lastStatus' | 'lastError' | 'lastNewMessages'>
-  ) => Promise<DataSource>
-  updateDataSource: (id: string, updates: Partial<DataSource>) => Promise<DataSource | null>
+  addDataSource: (partial: {
+    name?: string
+    baseUrl: string
+    token: string
+    intervalMinutes: number
+    pullLimit?: number
+  }) => Promise<DataSource>
+  updateDataSource: (
+    id: string,
+    updates: Partial<Pick<DataSource, 'name' | 'baseUrl' | 'token' | 'intervalMinutes' | 'pullLimit' | 'enabled'>>
+  ) => Promise<DataSource | null>
   deleteDataSource: (id: string) => Promise<boolean>
-  triggerPull: (id: string) => Promise<{ success: boolean; error?: string }>
-  onPullResult: (callback: (data: { dsId: string; status: string; detail: string }) => void) => () => void
+  addImportSessions: (
+    sourceId: string,
+    sessions: Array<{ name: string; remoteSessionId: string }>
+  ) => Promise<ImportSession[]>
+  removeImportSession: (sourceId: string, sessionId: string) => Promise<boolean>
+  triggerPull: (sourceId: string, sessionId?: string) => Promise<{ success: boolean; error?: string }>
+  triggerPullAll: (sourceId: string) => Promise<{ success: boolean; error?: string }>
+  fetchRemoteSessions: (
+    baseUrl: string,
+    token?: string,
+    query?: { keyword?: string; limit?: number; cursor?: string }
+  ) => Promise<RemoteSessionDiscoveryResult>
+  onPullResult: (
+    callback: (data: { sourceId: string; sessionId?: string; status: string; detail: string }) => void
+  ) => () => void
   onImportCompleted: (callback: () => void) => () => void
 }
 
@@ -1131,6 +1224,7 @@ export {
   AgentStreamChunk,
   AgentRuntimeStatus,
   AgentResult,
+  SerializedErrorInfo,
   ToolContext,
   DesensitizeRule,
   PreprocessConfig,
@@ -1156,4 +1250,5 @@ export {
   ApiServerConfig,
   ApiServerStatus,
   DataSource,
+  ImportSession,
 }

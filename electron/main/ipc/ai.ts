@@ -6,6 +6,7 @@ import * as aiConversations from '../ai/conversations'
 import * as llm from '../ai/llm'
 import * as rag from '../ai/rag'
 import { aiLogger, setDebugMode } from '../ai/logger'
+import { serializeError } from '../ai/serialize-error'
 import { getLogsDir } from '../paths'
 import { Agent, type AgentStreamChunk, type SkillContext } from '../ai/agent'
 import { getDefaultGeneralAssistantId } from '../ai/assistant/defaultGeneral'
@@ -403,6 +404,7 @@ export function registerAIHandlers({ win }: IpcContext): void {
         model?: string
         baseUrl?: string
         maxTokens?: number
+        apiFormat?: string
         customModels?: Array<{ id: string; name: string }>
       }
     ) => {
@@ -440,6 +442,7 @@ export function registerAIHandlers({ win }: IpcContext): void {
         model?: string
         baseUrl?: string
         maxTokens?: number
+        apiFormat?: string
         customModels?: Array<{ id: string; name: string }>
       }
     ) => {
@@ -511,6 +514,22 @@ export function registerAIHandlers({ win }: IpcContext): void {
         aiLogger.error('IPC', 'llm:validateApiKey failed', { error: String(error), provider, baseUrl, model })
         const errorMessage = error instanceof Error ? error.message : String(error)
         return { success: false, error: errorMessage }
+      }
+    }
+  )
+
+  /**
+   * 获取远程模型列表
+   */
+  ipcMain.handle(
+    'llm:fetchRemoteModels',
+    async (_, provider: string, apiKey: string, baseUrl?: string, apiFormat?: string) => {
+      aiLogger.info('IPC', 'llm:fetchRemoteModels', { provider, baseUrl, apiFormat })
+      try {
+        return await llm.fetchRemoteModels(provider, apiKey, baseUrl, apiFormat)
+      } catch (error) {
+        aiLogger.error('IPC', 'llm:fetchRemoteModels failed', { error: String(error) })
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
       }
     }
   )
@@ -1164,15 +1183,16 @@ export function registerAIHandlers({ win }: IpcContext): void {
               })
               return
             }
-            const friendlyError = formatAIError(error, activeAIConfig.provider)
-            aiLogger.error('IPC', `Agent execution error: ${requestId}`, {
-              error: String(error),
-              friendlyError,
-            })
+            const serializedError = serializeError(error, activeAIConfig.provider)
+            serializedError.friendlyMessage = formatAIError(error, activeAIConfig.provider)
+            if (!serializedError.url && activeAIConfig.baseUrl) {
+              serializedError.url = activeAIConfig.baseUrl
+            }
+            aiLogger.error('IPC', `Agent execution error: ${requestId}`, serializedError)
             // 发送错误 chunk
             win.webContents.send('agent:streamChunk', {
               requestId,
-              chunk: { type: 'error', error: friendlyError, isFinished: true },
+              chunk: { type: 'error', error: serializedError, isFinished: true },
             })
             // 发送完成事件（带错误信息），确保前端 promise 能 resolve
             win.webContents.send('agent:complete', {
@@ -1182,7 +1202,7 @@ export function registerAIHandlers({ win }: IpcContext): void {
                 toolsUsed: [],
                 toolRounds: 0,
                 totalUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-                error: friendlyError,
+                error: serializedError,
               },
             })
           } finally {

@@ -43,7 +43,35 @@
     "lengthGroupedTitle": "長度區間分佈",
     "lengthGroupedHint": "每5字一組",
     "noTextMessages": "暫無文字訊息",
-    "noData": "暫無資料"
+    "noData": "暫無資料",
+    "profile": {
+      "totalMessages": "總訊息",
+      "textMessages": "文字訊息",
+      "avgLength": "平均長度",
+      "avgLengthUnit": "{count} 字/則",
+      "mediaRatio": "媒體佔比",
+      "textExpression": "文字表達力",
+      "textExpressionDesc": "最長訊息 {count} 字",
+      "mediaRichness": "媒體豐富度",
+      "shortMaster": "短訊息達人",
+      "shortMasterDesc": "共 {count} 則 ≤5字",
+      "essayLover": "小作文愛好者",
+      "essayLoverDesc": "≥{threshold}字的訊息",
+      "peakRecord": "巔峰紀錄",
+      "peakRecordDesc": "單日最多 {count} 則",
+      "topHours": "最活躍時段",
+      "images": "圖片",
+      "emoji": "表情",
+      "voiceVideo": "語音/影片",
+      "typeDistribution": "訊息類型",
+      "hourlyDistribution": "24h 活躍",
+      "watermark": "訊息報告",
+      "heroLine1Prefix": "你們共留下了",
+      "heroLine1Suffix": "則訊息",
+      "heroLine2Prefix": "每則平均",
+      "heroLine2Middle": "個字，其中",
+      "heroLine2Suffix": "是非文字訊息"
+    }
   },
   "interaction": {
     "mentionGraph": "艾特互動關係圖",
@@ -110,11 +138,12 @@
       "total": "共 {count} 次破冰"
     },
     "responseLatency": {
-      "title": "回覆時延",
+      "title": "回覆速度",
       "hint": "收到對方訊息後平均多久回覆",
       "count": "{count} 次回覆",
       "seconds": "{n} 秒",
       "minutes": "{n} 分鐘",
+      "minutesSeconds": "{m}分{s}秒",
       "hours": "{n} 小時",
       "hoursMinutes": "{h} 小時 {m} 分鐘"
     },

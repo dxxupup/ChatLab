@@ -1,24 +1,21 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { AnalysisSession } from '@/types/base'
-import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
-import 'dayjs/locale/zh-cn'
-import 'dayjs/locale/en'
 import SidebarButton from './sidebar/SidebarButton.vue'
 import SidebarFooter from './sidebar/SidebarFooter.vue'
+import SidebarSortPopover from './sidebar/SidebarSortPopover.vue'
+import SubTabs from '@/components/UI/SubTabs.vue'
 import { useSessionStore } from '@/stores/session'
 import { useLayoutStore } from '@/stores/layout'
 
-dayjs.extend(relativeTime)
 const { t } = useI18n()
 
 const sessionStore = useSessionStore()
 const layoutStore = useLayoutStore()
-const { sessions, sortedSessions } = storeToRefs(sessionStore)
+const { sessions, sortedSessions, filterType } = storeToRefs(sessionStore)
 const { isSidebarCollapsed: isCollapsed } = storeToRefs(layoutStore)
 const { toggleSidebar } = layoutStore
 const router = useRouter()
@@ -44,6 +41,13 @@ const version = ref('')
 const showSearch = ref(false)
 const searchQuery = ref('')
 
+// 筛选 Tab 配置
+const filterTabItems = computed(() => [
+  { id: 'all', label: t('layout.filter.all') },
+  { id: 'private', label: t('layout.filter.private') },
+  { id: 'group', label: t('layout.filter.group') },
+])
+
 // 过滤后的会话列表
 const filteredSortedSessions = computed(() => {
   if (!searchQuery.value.trim()) {
@@ -61,7 +65,8 @@ function toggleSearch() {
   }
 }
 
-// 加载会话列表和版本号
+let unlistenImportCompleted: (() => void) | null = null
+
 onMounted(async () => {
   sessionStore.loadSessions()
   try {
@@ -69,15 +74,19 @@ onMounted(async () => {
   } catch (e) {
     console.error('Failed to get version', e)
   }
+
+  unlistenImportCompleted = window.apiServerApi.onImportCompleted(() => {
+    sessionStore.loadSessions()
+  })
+})
+
+onUnmounted(() => {
+  unlistenImportCompleted?.()
 })
 
 function handleImport() {
   // Navigate to home (Welcome Guide)
   router.push('/')
-}
-
-function formatTime(timestamp: number): string {
-  return dayjs.unix(timestamp).fromNow()
 }
 
 // 打开重命名弹窗
@@ -229,35 +238,35 @@ function getSessionAvatar(session: AnalysisSession): string | null {
 
     <!-- Session List -->
     <div class="flex-1 relative min-h-0 flex flex-col">
-      <!-- 聊天记录标题 - 固定在顶部，不随列表滚动 -->
-      <div v-if="!isCollapsed && sessions.length > 0" class="px-4 mb-2">
-        <div class="flex items-center justify-between">
-          <UTooltip :text="t('layout.tooltip.hint')" :popper="{ placement: 'right' }">
-            <div class="flex items-center gap-1 pl-3">
-              <div class="text-sm font-medium text-gray-500">{{ t('layout.chatHistory') }}</div>
-              <UIcon name="i-heroicons-question-mark-circle" class="size-3.5 text-gray-400" />
+      <!-- 筛选与排序 - 固定在顶部，不随列表滚动 -->
+      <div v-if="!isCollapsed && sessions.length > 0" class="mb-2">
+        <SubTabs v-model="filterType" :items="filterTabItems" size="sm" :bordered="false">
+          <template #right>
+            <div class="flex items-center gap-0.5">
+              <UTooltip :text="t('layout.tooltip.search')" :popper="{ placement: 'right' }">
+                <UButton
+                  :icon="showSearch ? 'i-heroicons-x-mark' : 'i-heroicons-magnifying-glass'"
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  @click="toggleSearch"
+                />
+              </UTooltip>
+              <SidebarSortPopover />
+              <UTooltip :text="t('layout.manage')" :popper="{ placement: 'right' }">
+                <UButton
+                  icon="i-heroicons-rectangle-stack"
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  @click="layoutStore.openSettings('data')"
+                />
+              </UTooltip>
             </div>
-          </UTooltip>
-          <div class="flex items-center gap-2">
-            <button
-              class="text-xs font-medium text-gray-400 hover:text-gray-900 transition-colors dark:hover:text-white"
-              @click="router.push({ name: 'settings', query: { tab: 'data' } })"
-            >
-              {{ t('layout.manage') }}
-            </button>
-            <UTooltip :text="t('layout.tooltip.search')" :popper="{ placement: 'right' }">
-              <UButton
-                :icon="showSearch ? 'i-heroicons-x-mark' : 'i-heroicons-magnifying-glass'"
-                color="neutral"
-                variant="ghost"
-                size="xs"
-                @click="toggleSearch"
-              />
-            </UTooltip>
-          </div>
-        </div>
+          </template>
+        </SubTabs>
         <!-- 搜索框 -->
-        <div v-if="showSearch" class="mt-2">
+        <div v-if="showSearch" class="mt-2 px-4">
           <UInput
             v-model="searchQuery"
             :placeholder="t('layout.searchPlaceholder')"
@@ -300,7 +309,9 @@ function getSessionAvatar(session: AnalysisSession): string | null {
                     ? 'justify-center cursor-pointer h-13 w-13 rounded-full ml-3.5'
                     : 'cursor-pointer w-full rounded-full',
                 ]"
-                @click="router.push({ name: getSessionRouteName(session), params: { id: session.id } })"
+                @click="
+                  router.push({ name: getSessionRouteName(session), params: { id: session.id }, query: route.query })
+                "
               >
                 <!-- 会话头像 -->
                 <!-- 有头像图片时显示图片 -->
@@ -349,7 +360,7 @@ function getSessionAvatar(session: AnalysisSession): string | null {
                     />
                   </div>
                   <p class="truncate text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('layout.sessionInfo', { count: session.messageCount, time: formatTime(session.importedAt) }) }}
+                    {{ t('layout.sessionInfo', { count: session.messageCount }) }}
                   </p>
                 </div>
               </div>
@@ -364,7 +375,7 @@ function getSessionAvatar(session: AnalysisSession): string | null {
     </div>
 
     <!-- Rename Modal -->
-    <UModal v-model:open="showRenameModal">
+    <UModal v-model:open="showRenameModal" :ui="{ content: 'z-50' }">
       <template #content>
         <div class="p-4">
           <h3 class="mb-3 font-semibold text-gray-900 dark:text-white">{{ t('layout.renameModal.title') }}</h3>
@@ -386,7 +397,7 @@ function getSessionAvatar(session: AnalysisSession): string | null {
     </UModal>
 
     <!-- Delete Confirmation Modal -->
-    <UModal v-model:open="showDeleteModal">
+    <UModal v-model:open="showDeleteModal" :ui="{ content: 'z-50' }">
       <template #content>
         <div class="p-4">
           <h3 class="mb-3 font-semibold text-gray-900 dark:text-white">{{ t('layout.deleteModal.title') }}</h3>

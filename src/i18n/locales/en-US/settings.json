@@ -12,9 +12,19 @@
     "storageManage": "Storage",
     "sessionManage": "Sessions",
     "about": "About",
-    "api": "API Service"
+    "api": "Automation",
+    "apiSubTabs": {
+      "autoSync": "Auto Sync",
+      "apiService": "API Service"
+    }
   },
   "basic": {
+    "general": {
+      "title": "General"
+    },
+    "preferences": {
+      "title": "Preferences"
+    },
     "language": {
       "title": "Language",
       "description": "Choose language"
@@ -28,9 +38,21 @@
     },
     "defaultTab": {
       "title": "Default Tab",
-      "description": "Default page when entering a session",
+      "description": "Default page when entering a chat conversation",
       "overview": "Overview",
       "aiChat": "AI Chat"
+    },
+    "autoLaunch": {
+      "title": "Startup",
+      "openAtLogin": "Launch at Login",
+      "openAtLoginDesc": "Automatically start ChatLab when the system boots",
+      "devModeHint": "Not available in dev mode"
+    },
+    "toolsPanel": {
+      "positionLabel": "Tools Panel Position",
+      "positionDesc": "Choose where the quick tools panel appears",
+      "positionSide": "Side",
+      "positionHeader": "Header"
     },
     "screenshot": {
       "title": "Screenshot",
@@ -64,7 +86,6 @@
     "inUse": "Active",
     "defaultModel": "Default Model",
     "localService": "Local Service",
-    "customEndpoint": "Custom Endpoint",
     "edit": "Edit",
     "delete": "Delete",
     "empty": {
@@ -106,6 +127,16 @@
       "modelNameHintLocal": "Enter the locally deployed model name",
       "apiEndpoint": "API URL",
       "apiEndpointHint": "OpenAI-compatible API endpoint",
+      "resolvedUrl": "Resolved URL:",
+      "fetchModels": "Fetch from API",
+      "fetchModelsTitle": "Browse Remote Models",
+      "fetchModelsLoading": "Fetching model list...",
+      "fetchModelsEmpty": "No models found",
+      "fetchModelsError": "Failed to fetch models",
+      "fetchModelsCount": "{total} models total, showing {shown}",
+      "modelAdded": "Added",
+      "addAllModels": "Add all",
+      "searchModels": "Search models...",
       "apiEndpointOverrideHint": "Default URL is prefilled. Replace if needed",
       "disableThinking": "Disable Thinking Mode",
       "disableThinkingDesc": "For models like Qwen3, DeepSeek-R1. Uses standard tool calling format when disabled.",
@@ -120,18 +151,23 @@
       "thirdPartyService": "Third-party",
       "customModelInput": "Enter model manually",
       "selectFromList": "Select from list",
-      "addCustomModel": "Add Custom Model",
-      "deleteCustomModel": "Delete selected custom model",
+      "addCustomModel": "Add Model",
+      "deleteCustomModel": "Delete Selected",
       "customModelId": "Model Endpoint Name",
       "customModelIdHint": "The model identifier used in API calls",
       "customModelDisplayName": "Display Name",
       "customModelDisplayNamePlaceholder": "Custom display name",
-      "modelCapabilities": "Model Capabilities"
+      "modelRequired": "Add at least one model to save",
+      "modelCapabilities": "Model Capabilities",
+      "apiFormat": "API Format",
+      "apiFormatOpenAI": "OpenAI Completions",
+      "apiFormatAnthropic": "Anthropic",
+      "apiFormatGemini": "Gemini",
+      "apiFormatOpenAIResponses": "OpenAI Responses"
     },
     "providerKind": {
       "official": "Official",
       "aggregator": "Aggregator",
-      "compatible": "Compatible",
       "custom": "Custom"
     },
     "capabilities": {
@@ -158,6 +194,7 @@
       "newPath": "New directory path",
       "defaultPath": "Default location",
       "confirmWarning": "After restarting, the old data directory will be automatically deleted. Please ensure the new path is correct.",
+      "installDirForbidden": "Data directory cannot be placed inside the app installation directory, as it will be cleared during updates",
       "cancel": "Cancel",
       "confirm": "Confirm",
       "migrationSuccessTitle": "Migration Complete",
@@ -170,11 +207,6 @@
     "notExist": "Not exist",
     "clear": "Clear",
     "open": "Open",
-    "notes": {
-      "title": "Notes",
-      "logSafe": "Log files are mainly for debugging and can be safely cleared",
-      "noRecover": "All cleared files cannot be recovered, please proceed with caution"
-    },
     "cache": {
       "databases": {
         "name": "Chat Databases",
@@ -464,6 +496,7 @@
       "title": "Data Sources",
       "desc": "Configure external data source URLs. ChatLab will automatically pull and import chat data at the specified interval.",
       "empty": "No data sources",
+      "noSessions": "No import sessions. Click \"Manage Sessions\" above to add.",
       "disabled": "Paused",
       "every": "Every",
       "minutes": "min",
@@ -477,15 +510,53 @@
         "token": "Access Token (optional)",
         "tokenPlaceholder": "Bearer Token for the remote API",
         "interval": "Pull Interval (minutes)",
+        "pullLimit": "Messages per Pull",
+        "pullLimitPlaceholder": "Default 1000",
         "targetSession": "Target Session ID (optional)",
         "targetSessionPlaceholder": "Leave empty to create new session each time",
         "add": "Add"
+      },
+      "discovery": {
+        "directMode": "Direct URL",
+        "remoteMode": "Remote Server",
+        "baseUrl": "Server URL",
+        "baseUrlPlaceholder": "e.g. http://127.0.0.1:2333/api/v1",
+        "browse": "Browse Sessions",
+        "found": "Found {count} sessions",
+        "search": "Search",
+        "searchPlaceholder": "Search by session name",
+        "selectAll": "Select All",
+        "deselectAll": "Deselect All",
+        "selectByType": "Session type",
+        "typeAll": "All",
+        "typePrivate": "Private",
+        "typeGroup": "Group",
+        "typeOther": "Other",
+        "loadMore": "Load More",
+        "subscribe": "Subscribe {count} sessions",
+        "messages": "messages",
+        "error": "Failed to connect to remote server"
+      },
+      "edit": {
+        "title": "Edit Data Source",
+        "save": "Save",
+        "cancel": "Cancel",
+        "editSource": "Edit Config",
+        "manageSessions": "Manage Subscriptions",
+        "manageSessionsDesc": "Re-select remote sessions to sync",
+        "syncAll": "Sync All",
+        "subscribed": "Subscribed"
+      },
+      "deleteConfirm": {
+        "title": "Delete Data Source",
+        "message": "Are you sure you want to delete \"{name}\"? All import configurations under this data source will be removed. Already imported local conversations will not be deleted."
       }
     },
     "usage": {
       "title": "Usage Guide",
-      "desc": "After enabling the service, use the following endpoints to query data. All requests require Bearer Token authentication.",
-      "authHint": "Header example:"
+      "desc": "After enabling the service, external tools can query and import data via API. All requests require Bearer Token authentication.",
+      "authHint": "Header example:",
+      "docLink": "View full API documentation"
     }
   }
 }

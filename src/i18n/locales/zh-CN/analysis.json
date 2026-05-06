@@ -13,7 +13,7 @@
   },
   "tabs": {
     "overview": "总览",
-    "view": "视图",
+    "view": "洞察",
     "ranking": "榜单",
     "groupQuotes": "语录",
     "quotes": "语录",
@@ -21,15 +21,20 @@
     "member": "成员",
     "ai": "AI实验室",
     "aiChat": "AI对话",
+    "memory": "记忆",
     "lab": "实验室",
     "sqlLab": "SQL实验室"
+  },
+  "memory": {
+    "comingSoon": "正在计划中，如果你对记忆功能有什么建议，欢迎加群讨论。",
+    "joinLink": "https://chatlab.fun/cn/other/community.html"
   },
   "yearFilter": {
     "allTime": "全部时间",
     "year": "{year}年"
   },
   "tooltip": {
-    "chatViewer": "聊天记录查看器",
+    "viewChatRecord": "查看聊天记录",
     "sessionIndex": "会话索引",
     "incrementalImport": "增量导入",
     "memberManagement": "成员管理"
@@ -53,15 +58,24 @@
   "subTabs": {
     "view": {
       "message": "消息",
+      "topic": "话题",
       "interaction": "互动分析",
+      "groupRelationships": "群关系",
       "ranking": "榜单",
-      "relationship": "关系"
+      "relationship": "关系",
+      "languagePreference": "语言偏好"
     },
     "quotes": {
-      "wordcloud": "词云",
+      "wordcloud": "话题",
       "hotRepeat": "最火复读",
       "catchphrase": "口头禅",
-      "keywordAnalysis": "关键词分析"
+      "keywordAnalysis": "关键词分析",
+      "languagePreference": "语言偏好"
+    },
+    "groupRelationships": {
+      "mentionGraph": "@ 关系图",
+      "mentionRanking": "@ 排行",
+      "proximity": "发言临近度"
     },
     "member": {
       "memberList": "成员列表",
@@ -95,7 +109,9 @@
       "daysStreak": "{count} 天",
       "longestStreak": "最长连续活跃",
       "activityRate": "活跃率",
-      "activeDaysRatio": "有消息的天数占比"
+      "activeDaysRatio": "有消息的天数占比",
+      "lateNightChat": "深夜聊天",
+      "lateNightRatio": "占总消息 {ratio}%"
     },
     "dailyTrend": {
       "title": "每日消息趋势"
@@ -106,9 +122,18 @@
       "analysisReport": "数据分析报告",
       "totalMessages": "消息总数",
       "durationDays": "跨度天数",
+      "activeDays": "活跃天数",
       "dailyAvgMessages": "日均消息"
     },
     "tools": "常用工具"
+  },
+  "toolsPanel": {
+    "expand": "展开工具面板",
+    "collapse": "收起工具面板",
+    "lock": "锁定面板",
+    "unlock": "解锁面板",
+    "miniMode": "迷你模式",
+    "exitMini": "退出迷你模式"
   },
   "messageExport": {
     "title": "导出聊天记录"

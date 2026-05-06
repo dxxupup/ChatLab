@@ -32,6 +32,8 @@
       "previewUnavailable": "No skill prompt available for preview",
       "presetMore": "More",
       "presetCollapse": "Collapse",
+      "quickAsk": "Quick Ask",
+      "editQuickAsk": "Edit Quick Ask",
       "send": "Send",
       "needMoreThanSkill": "Selecting a skill alone is not enough. Enter a specific question.",
       "needQuestion": "Enter a question before sending"
@@ -174,15 +176,40 @@
     "conversation": {
       "title": "AI Conversations",
       "newChat": "New Chat",
+      "newConversation": "New Chat",
       "empty": "No history yet",
       "startNew": "Start New Chat",
       "titlePlaceholder": "Enter title...",
+      "group": {
+        "last7Days": "Last 7 Days",
+        "last30Days": "Last 30 Days"
+      },
+      "rename": "Rename",
+      "delete": "Delete",
       "export": {
         "createdAt": "Created",
         "user": "User",
         "assistant": "AI Assistant",
         "noMessages": "No messages to export"
       }
+    },
+    "error": {
+      "title": "Processing Failed",
+      "detail": "Error Details",
+      "viewDetail": "View Details",
+      "requestUrl": "Request URL",
+      "statusCode": "Status Code",
+      "responseBody": "Response Body",
+      "responseHeaders": "Response Headers",
+      "requestBody": "Request Body",
+      "name": "Error Name",
+      "message": "Error Message",
+      "stack": "Stack Trace",
+      "cause": "Error Cause",
+      "provider": "Provider",
+      "copyAll": "Copy All",
+      "copied": "Copied to clipboard",
+      "unknown": "Unknown error"
     },
     "dataSource": {
       "title": "Data Source",
@@ -256,11 +283,12 @@
   "assistant": {
     "selector": {
       "title": "Choose an assistant to start",
+      "heroTitlePrefix": "Chat with",
+      "heroTitleSuffix": "",
       "subtitle": "Each assistant specializes in different types of analysis tasks. Pick the one that best fits your needs.",
       "noAssistants": "No assistants available for this context",
       "manage": "Manage Assistants",
-      "addNew": "New Assistant",
-      "rememberSelection": "Remember this choice for 7 days"
+      "addNew": "New Assistant"
     },
     "config": {
       "viewTitle": "View Config",

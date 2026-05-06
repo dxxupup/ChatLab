@@ -6,10 +6,12 @@
 import { Worker } from 'worker_threads'
 import { app } from 'electron'
 import * as path from 'path'
+import * as fs from 'fs'
 import type { ParseProgress } from '../parser'
 import type { StreamImportResult } from './import'
 import { openDatabase } from '../database/core'
 import { getDatabaseDir, getCacheDir, ensureDir } from '../paths'
+import { getNlpDir } from '../nlp/dictManager'
 
 // Worker 实例
 let worker: Worker | null = null
@@ -54,6 +56,63 @@ function getWorkerPath(): string {
 }
 
 /**
+ * 清空 cache/query/ 下所有 .cache.json 文件
+ */
+function clearAnalysisCacheFiles(queryCacheDir: string): void {
+  if (!fs.existsSync(queryCacheDir)) return
+  const files = fs.readdirSync(queryCacheDir)
+  for (const file of files) {
+    if (file.endsWith('.cache.json')) {
+      fs.unlinkSync(path.join(queryCacheDir, file))
+    }
+  }
+}
+
+/**
+ * 启动时检查是否需要清除分析缓存：
+ * - 开发模式：每次启动都清空（代码随时可能变更，避免旧缓存误导）
+ * - 生产模式：版本号变更时清空（兜底查询逻辑变更导致的缓存过时）
+ */
+function checkAndResetAnalysisCache(): void {
+  const queryCacheDir = path.join(getCacheDir(), 'query')
+  const isDev = !app.isPackaged
+
+  if (isDev) {
+    console.log('[WorkerManager] Dev mode: clearing analysis cache on startup')
+    try {
+      clearAnalysisCacheFiles(queryCacheDir)
+    } catch (err) {
+      console.error('[WorkerManager] Failed to clear analysis cache:', err)
+    }
+    return
+  }
+
+  const versionFile = path.join(queryCacheDir, '.cache_version')
+  const currentVersion = app.getVersion()
+
+  let lastVersion: string | null = null
+  try {
+    if (fs.existsSync(versionFile)) {
+      lastVersion = fs.readFileSync(versionFile, 'utf-8').trim()
+    }
+  } catch {
+    // ignore read errors
+  }
+
+  if (lastVersion === currentVersion) return
+
+  console.log(`[WorkerManager] Version changed (${lastVersion ?? 'none'} → ${currentVersion}), clearing analysis cache`)
+
+  try {
+    clearAnalysisCacheFiles(queryCacheDir)
+    ensureDir(queryCacheDir)
+    fs.writeFileSync(versionFile, currentVersion, 'utf-8')
+  } catch (err) {
+    console.error('[WorkerManager] Failed to reset analysis cache:', err)
+  }
+}
+
+/**
  * 初始化 Worker
  */
 export function initWorker(): void {
@@ -61,6 +120,8 @@ export function initWorker(): void {
     console.log('[WorkerManager] Worker already initialized')
     return
   }
+
+  checkAndResetAnalysisCache()
 
   const workerPath = getWorkerPath()
   console.log('[WorkerManager] Initializing worker at:', workerPath)
@@ -70,6 +131,7 @@ export function initWorker(): void {
       workerData: {
         dbDir: getDbDir(),
         cacheDir: getCacheDir(),
+        nlpDir: getNlpDir(),
       },
     })
 
@@ -313,6 +375,15 @@ export async function getCatchphraseAnalysis(sessionId: string, filter?: any): P
   return sendToWorker('getCatchphraseAnalysis', { sessionId, filter })
 }
 
+export async function getLanguagePreferenceAnalysis(params: {
+  sessionId: string
+  locale: string
+  timeFilter?: any
+  dictType?: string
+}): Promise<any> {
+  return sendToWorker('getLanguagePreferenceAnalysis', params)
+}
+
 export async function getMentionAnalysis(sessionId: string, filter?: any): Promise<any> {
   return sendToWorker('getMentionAnalysis', { sessionId, filter })
 }
@@ -409,6 +480,13 @@ export async function updateMemberAliases(sessionId: string, memberId: number, a
 }
 
 /**
+ * 合并两个成员（保留消息数更多的一方）
+ */
+export async function mergeMembers(sessionId: string, memberId1: number, memberId2: number): Promise<boolean> {
+  return sendToWorker('mergeMembers', { sessionId, memberId1, memberId2 })
+}
+
+/**
  * 删除成员及其所有消息
  */
 export async function deleteMember(sessionId: string, memberId: number): Promise<boolean> {
@@ -443,9 +521,10 @@ export async function streamParseFileInfo(
 export async function streamImport(
   filePath: string,
   onProgress?: (progress: ParseProgress) => void,
-  formatOptions?: Record<string, unknown>
+  formatOptions?: Record<string, unknown>,
+  externalSessionId?: string
 ): Promise<StreamImportResult> {
-  return sendToWorkerWithProgress('streamImport', { filePath, formatOptions }, onProgress)
+  return sendToWorkerWithProgress('streamImport', { filePath, formatOptions, externalSessionId }, onProgress)
 }
 
 /**
@@ -989,12 +1068,39 @@ export async function analyzeIncrementalImport(sessionId: string, filePath: stri
 }
 
 /**
+ * 导入选项（控制 meta/members 更新行为）
+ */
+export interface ImportOptions {
+  metaUpdateMode?: 'patch' | 'none'
+  memberUpdateMode?: 'upsert' | 'none'
+}
+
+/**
  * 增量导入结果
  */
 export interface IncrementalImportResult {
   success: boolean
   newMessageCount: number
   error?: string
+  batch?: {
+    receivedCount: number
+    writtenCount: number
+    duplicateCount: number
+    errorCount: number
+    errorReasonCounts: Record<string, number>
+    errorSample: Array<{ index: number; reason: string; detail: string }>
+  }
+  session?: {
+    totalCount: number
+    memberCount: number
+    firstTimestamp: number
+    lastTimestamp: number
+  }
+  updates?: {
+    metaUpdated: boolean
+    membersAdded: number
+    membersUpdated: number
+  }
 }
 
 /**
@@ -1003,7 +1109,25 @@ export interface IncrementalImportResult {
 export async function incrementalImport(
   sessionId: string,
   filePath: string,
-  onProgress?: (progress: ParseProgress) => void
+  onProgress?: (progress: ParseProgress) => void,
+  options?: ImportOptions
 ): Promise<IncrementalImportResult> {
-  return sendToWorkerWithProgress('incrementalImport', { sessionId, filePath }, onProgress)
+  return sendToWorkerWithProgress('incrementalImport', { sessionId, filePath, options }, onProgress)
+}
+
+/**
+ * Dry-run analysis result for new sessions
+ */
+export interface AnalyzeNewImportResult {
+  totalMessages: number
+  totalMembers: number
+  meta: { name: string; platform: string; type: string } | null
+  error?: string
+}
+
+/**
+ * Analyze a new import file without writing to DB (dry-run)
+ */
+export async function analyzeNewImport(filePath: string): Promise<AnalyzeNewImportResult> {
+  return sendToWorker('analyzeNewImport', { filePath })
 }

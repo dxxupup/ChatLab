@@ -5,6 +5,7 @@ import { SubTabs } from '@/components/UI'
 import UserSelect from '@/components/common/UserSelect.vue'
 import MessageView from '@openchatlab/chart-message/MessageView.vue'
 import RelationshipView from './view/RelationshipView.vue'
+import { WordcloudTab, LanguagePreferenceTab } from '@/components/analysis/quotes'
 
 const { t } = useI18n()
 
@@ -15,15 +16,18 @@ interface TimeFilter {
 
 const props = defineProps<{
   sessionId: string
+  sessionName?: string
   timeFilter?: TimeFilter
 }>()
 
 const subTabs = computed(() => [
-  { id: 'message', label: t('analysis.subTabs.view.message'), icon: 'i-heroicons-chat-bubble-left-right' },
   { id: 'relationship', label: t('analysis.subTabs.view.relationship'), icon: 'i-heroicons-heart' },
+  { id: 'message', label: t('analysis.subTabs.view.message'), icon: 'i-heroicons-chat-bubble-left-right' },
+  { id: 'topic', label: t('analysis.subTabs.view.topic'), icon: 'i-heroicons-cloud' },
+  { id: 'language-preference', label: t('analysis.subTabs.view.languagePreference'), icon: 'i-heroicons-language' },
 ])
 
-const activeSubTab = ref('message')
+const activeSubTab = ref('relationship')
 
 // 成员筛选（仅用于消息视图）
 const selectedMemberId = ref<number | null>(null)
@@ -47,9 +51,25 @@ const viewTimeFilter = computed(() => ({
     <!-- 子 Tab 内容 -->
     <div class="flex-1 min-h-0 overflow-auto">
       <Transition name="fade" mode="out-in">
-        <MessageView v-if="activeSubTab === 'message'" :session-id="props.sessionId" :time-filter="viewTimeFilter" />
+        <MessageView
+          v-if="activeSubTab === 'message'"
+          :session-id="props.sessionId"
+          :session-name="props.sessionName"
+          :time-filter="viewTimeFilter"
+        />
         <RelationshipView
           v-else-if="activeSubTab === 'relationship'"
+          :session-id="props.sessionId"
+          :time-filter="props.timeFilter"
+        />
+        <WordcloudTab
+          v-else-if="activeSubTab === 'topic'"
+          :session-id="props.sessionId"
+          :time-filter="props.timeFilter"
+          :show-shared-topics="true"
+        />
+        <LanguagePreferenceTab
+          v-else-if="activeSubTab === 'language-preference'"
           :session-id="props.sessionId"
           :time-filter="props.timeFilter"
         />

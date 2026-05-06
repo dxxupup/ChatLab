@@ -29,6 +29,7 @@ import {
   getSession,
   getChatOverview,
   getCatchphraseAnalysis,
+  getLanguagePreferenceAnalysis,
   getMentionAnalysis,
   getMentionGraph,
   getLaughAnalysis,
@@ -47,6 +48,7 @@ import {
   getMembers,
   getMembersPaginated,
   updateMemberAliases,
+  mergeMembers,
   deleteMember,
   // SQL 实验室
   executeRawSQL,
@@ -71,10 +73,22 @@ import {
   segmentText,
   getPosTags,
 } from './query'
-import { streamImport, streamParseFileInfo, analyzeIncrementalImport, incrementalImport } from './import'
+import {
+  streamImport,
+  streamParseFileInfo,
+  analyzeIncrementalImport,
+  incrementalImport,
+  analyzeNewImport,
+} from './import'
+import { initNlpDir } from '../nlp/segmenter'
 
 // 初始化数据库目录
 initDbDir(workerData.dbDir, workerData.cacheDir)
+
+// 初始化 NLP 词库目录
+if (workerData.nlpDir) {
+  initNlpDir(workerData.nlpDir)
+}
 
 // ==================== 分析结果缓存 ====================
 
@@ -97,6 +111,7 @@ const CACHEABLE_QUERIES = new Set([
   'getMessageTypeDistribution',
   'getTimeRange',
   'getCatchphraseAnalysis',
+  'getLanguagePreferenceAnalysis',
   'getMentionAnalysis',
   'getMentionGraph',
   'getLaughAnalysis',
@@ -123,7 +138,12 @@ function buildAnalysisCacheKey(type: string, payload: any): string {
   if (payload.locale) parts.push(`l${payload.locale}`)
   if (payload.topN) parts.push(`n${payload.topN}`)
   if (payload.minLength) parts.push(`ml${payload.minLength}`)
+  if (payload.posFilterMode) parts.push(`pfm${payload.posFilterMode}`)
+  if (payload.customPosTags?.length) parts.push(`cpt${JSON.stringify(payload.customPosTags)}`)
   if (payload.posTags) parts.push(`pt${JSON.stringify(payload.posTags)}`)
+  if (payload.enableStopwords === false) parts.push('sw0')
+  if (payload.dictType && payload.dictType !== 'default') parts.push(`dt${payload.dictType}`)
+  if (payload.excludeWords?.length) parts.push(`ew${JSON.stringify(payload.excludeWords)}`)
   return parts.join(':')
 }
 
@@ -167,10 +187,12 @@ const syncHandlers: Record<string, (payload: any) => any> = {
   getMembers: (p) => getMembers(p.sessionId),
   getMembersPaginated: (p) => getMembersPaginated(p.sessionId, p.params),
   updateMemberAliases: (p) => updateMemberAliases(p.sessionId, p.memberId, p.aliases),
+  mergeMembers: (p) => mergeMembers(p.sessionId, p.memberId1, p.memberId2),
   deleteMember: (p) => deleteMember(p.sessionId, p.memberId),
 
   // 高级分析
   getCatchphraseAnalysis: (p) => getCatchphraseAnalysis(p.sessionId, p.filter),
+  getLanguagePreferenceAnalysis: (p) => getLanguagePreferenceAnalysis(p),
   getMentionAnalysis: (p) => getMentionAnalysis(p.sessionId, p.filter),
   getMentionGraph: (p) => getMentionGraph(p.sessionId, p.filter),
   getLaughAnalysis: (p) => getLaughAnalysis(p.sessionId, p.filter, p.keywords),
@@ -235,12 +257,14 @@ const syncHandlers: Record<string, (payload: any) => any> = {
 // 异步消息处理器（流式操作）
 const asyncHandlers: Record<string, (payload: any, requestId: string) => Promise<any>> = {
   // 流式导入
-  streamImport: (p, id) => streamImport(p.filePath, id, p.formatOptions),
+  streamImport: (p, id) => streamImport(p.filePath, id, p.formatOptions, p.externalSessionId),
   // 流式解析文件信息（用于合并预览）
   streamParseFileInfo: (p, id) => streamParseFileInfo(p.filePath, id),
   // 增量导入
   analyzeIncrementalImport: (p, id) => analyzeIncrementalImport(p.sessionId, p.filePath, id),
-  incrementalImport: (p, id) => incrementalImport(p.sessionId, p.filePath, id),
+  incrementalImport: (p, id) => incrementalImport(p.sessionId, p.filePath, id, p.options),
+  // Dry-run 分析（新会话）
+  analyzeNewImport: (p, id) => analyzeNewImport(p.filePath, id),
   // 导出筛选结果到文件（支持进度报告）
   exportFilterResultToFile: async (p, id) => exportFilterResultToFile(p, id),
 }

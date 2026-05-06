@@ -12,6 +12,26 @@ type AppWithQuitFlag = typeof app & { isQuiting?: boolean }
 // 通过类型扩展记录应用退出意图，避免使用 @ts-ignore。
 const appWithQuitFlag = app as AppWithQuitFlag
 
+const REMOTE_CONFIG_ALLOWED_DOMAINS = ['chatlab.fun', '1app.top']
+const REMOTE_CONFIG_TIMEOUT_MS = 8000
+const REMOTE_CONFIG_MAX_BYTES = 1024 * 1024 // 1MB
+
+function isAllowedRemoteConfigUrl(rawUrl: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return false
+  }
+
+  if (parsed.protocol !== 'https:') return false
+  if (parsed.username || parsed.password) return false
+  if (parsed.port && parsed.port !== '443') return false
+
+  const hostname = parsed.hostname.toLowerCase()
+  return REMOTE_CONFIG_ALLOWED_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))
+}
+
 /**
  * 注册窗口和文件系统操作 IPC 处理器
  */
@@ -89,25 +109,108 @@ export function registerWindowHandlers(ctx: IpcContext): void {
 
   // 获取远程配置（支持 JSON 和纯文本/Markdown）
   ipcMain.handle('app:fetchRemoteConfig', async (_, url: string) => {
+    const normalizedUrl = typeof url === 'string' ? url.trim() : ''
+    if (!isAllowedRemoteConfigUrl(normalizedUrl)) {
+      return { success: false, error: 'URL is not allowed' }
+    }
+
+    const abortController = new AbortController()
+    const timeout = setTimeout(() => abortController.abort(), REMOTE_CONFIG_TIMEOUT_MS)
+
     try {
-      const response = await fetch(url)
+      // 使用 manual 重定向模式，手动验证每个重定向目标
+      let currentUrl = normalizedUrl
+      let response = await fetch(currentUrl, {
+        signal: abortController.signal,
+        redirect: 'manual',
+      })
+
+      // 处理重定向链（最多跟随3次重定向，避免无限循环）
+      let redirectCount = 0
+      const maxRedirects = 3
+
+      while (response.status >= 300 && response.status < 400 && redirectCount < maxRedirects) {
+        redirectCount++
+
+        const location = response.headers.get('location')
+        if (!location) {
+          return { success: false, error: `Redirect response without location header (hop ${redirectCount})` }
+        }
+
+        // 构建完整的重定向 URL
+        const redirectUrl = new URL(location, currentUrl).href
+        if (!isAllowedRemoteConfigUrl(redirectUrl)) {
+          return { success: false, error: `Redirect URL is not allowed (hop ${redirectCount}): ${redirectUrl}` }
+        }
+
+        // 跟随重定向
+        currentUrl = redirectUrl
+        response = await fetch(currentUrl, {
+          signal: abortController.signal,
+          redirect: 'manual',
+        })
+      }
+
+      // 检查是否超过最大重定向次数（严格大于，允许恰好等于最大次数）
+      if (redirectCount > maxRedirects) {
+        return { success: false, error: `Too many redirects (exceeded ${maxRedirects})` }
+      }
+
+      // 验证最终响应的 URL
+      const finalUrl = response.url || currentUrl
+      if (!isAllowedRemoteConfigUrl(finalUrl)) {
+        return { success: false, error: 'Final URL is not allowed' }
+      }
+
       const contentType = response.headers.get('content-type') || ''
+      const contentLength = Number(response.headers.get('content-length') || 0)
+
+      if (Number.isFinite(contentLength) && contentLength > REMOTE_CONFIG_MAX_BYTES) {
+        return { success: false, error: 'Response is too large' }
+      }
 
       if (!response.ok) {
         return { success: false, error: `HTTP ${response.status}: ${response.statusText}` }
       }
 
+      const buffer = Buffer.from(await response.arrayBuffer())
+      if (buffer.length > REMOTE_CONFIG_MAX_BYTES) {
+        return { success: false, error: 'Response is too large' }
+      }
+
       // 根据 Content-Type 或 URL 后缀决定解析方式
-      const isJson = contentType.includes('application/json') || url.endsWith('.json')
+      const isJson = contentType.includes('application/json') || finalUrl.endsWith('.json')
 
       if (isJson) {
-        const data = await response.json()
+        const data = JSON.parse(buffer.toString('utf-8'))
         return { success: true, data }
       } else {
         // 纯文本/Markdown 等其他格式
-        const data = await response.text()
+        const data = buffer.toString('utf-8')
         return { success: true, data }
       }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { success: false, error: 'Request timeout' }
+      }
+      return { success: false, error: String(error) }
+    } finally {
+      clearTimeout(timeout)
+    }
+  })
+
+  // ==================== 开机自启动 ====================
+  ipcMain.handle('app:getOpenAtLogin', () => {
+    if (!app.isPackaged) return false
+    const { openAtLogin } = app.getLoginItemSettings()
+    return openAtLogin
+  })
+
+  ipcMain.handle('app:setOpenAtLogin', (_, enabled: boolean) => {
+    if (!app.isPackaged) return { success: false, error: 'Not available in dev mode' }
+    try {
+      app.setLoginItemSettings({ openAtLogin: enabled })
+      return { success: true }
     } catch (error) {
       return { success: false, error: String(error) }
     }

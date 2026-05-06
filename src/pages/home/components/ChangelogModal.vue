@@ -86,8 +86,8 @@ const changelogs = ref<ChangelogItem[]>([])
 
 function getChangelogUrl(lang: string) {
   const localePath = getChatlabSiteLocalePath(lang)
-  const langPath = localePath ? `/${localePath}` : ''
-  return `https://chatlab.fun${langPath}/changelogs.json`
+  const langPath = localePath || 'en'
+  return `https://chatlab.fun/changelogs/${langPath}.json`
 }
 
 // 从服务端获取 changelog 数据
