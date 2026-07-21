@@ -1,6 +1,9 @@
 {
   "brand": "ChatLab",
   "newAnalysis": "新しいチャットを分析",
+  "contacts": "連絡先",
+  "relationships": "関係",
+  "insight": "足跡",
   "tools": "ツール",
   "chatHistory": "チャット履歴",
   "manage": "管理",
@@ -11,6 +14,7 @@
     "rename": "名前変更",
     "pin": "ピン留め",
     "unpin": "ピン留め解除",
+    "copyId": "IDをコピー",
     "delete": "削除"
   },
   "renameModal": {
@@ -20,6 +24,15 @@
   "deleteModal": {
     "title": "削除の確認",
     "message": "チャット記録「{name}」を削除しますか？この操作は取り消せません。"
+  },
+  "updateNotice": {
+    "tag": "New",
+    "title": "新しいバージョンがあります",
+    "message": "最新バージョンは v{version} です。",
+    "desktopHint": "今すぐ更新をクリックすると、デスクトップ版の更新確認とダウンロードを開始します。",
+    "cliHint": "ターミナルで次のコマンドを実行し、更新後にサービスを再起動してください。",
+    "updateNow": "今すぐ更新",
+    "later": "後で"
   },
   "filter": {
     "all": "すべて",
@@ -32,15 +45,11 @@
     "messageCount": "メッセージ数"
   },
   "tooltip": {
-    "expand": "サイドバーを展開",
-    "collapse": "サイドバーを折りたたむ",
-    "hint": "右クリックでチャット記録の削除や名前変更ができます",
     "search": "チャット記録を検索",
     "sort": "並べ替え"
   },
   "sessionInfo": "{count} 件のメッセージ",
   "footer": {
-    "helpAndFeedback": "フィードバックとヘルプ",
     "settings": "設定"
   }
 }

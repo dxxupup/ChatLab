@@ -1,10 +1,23 @@
 {
-  "ownerSelector": {
-    "title": "あなたを選択してください",
-    "unset": "未設定",
-    "selectMember": "メンバーを選択",
-    "currentOwner": "現在：{name}",
-    "hint": "1. チャット履歴ビューアの右側に表示されます 2. AI との会話ではあなた本人として扱われます"
+  "ownerPrompt": {
+    "title": "あなたはどなたですか？",
+    "subtitle": "このチャットでのあなたの身元を選択してください",
+    "description": "設定するとあなたのメッセージがチャット履歴ビューアの右側に表示され、AI との会話でもあなた本人として認識され、分析がより正確になります。同じプラットフォームの他のチャットにも自動的に適用されます。",
+    "searchPlaceholder": "メンバーを検索",
+    "noMatch": "一致するメンバーが見つかりません",
+    "empty": "メンバーデータがありません",
+    "loadError": "メンバーデータの読み込みに失敗しました。再試行してください",
+    "later": "後で",
+    "dontRemind": "このチャットでは再通知しない",
+    "save": "保存",
+    "clear": "現在の選択をクリア",
+    "saved": "あなたの身元を設定しました",
+    "appliedToOthers": "同じプラットフォームの {count} 件のチャットに自動適用しました",
+    "saveFailed": "身元の設定に失敗しました",
+    "currentOwner": "私は：{name}",
+    "choose": "自分を選択",
+    "change": "変更",
+    "helper": "設定すると AI があなたを認識し、分析がより正確になります"
   },
   "list": {
     "title": "メンバー管理",
@@ -16,13 +29,15 @@
       "accountName": "アカウント名",
       "groupNickname": "グループニックネーム",
       "messageCount": "メッセージ数",
+      "lastMessageTime": "最終発言",
       "customAlias": "カスタム別名",
       "actions": "操作"
     },
     "aliasPlaceholder": "入力して Enter で追加",
     "delete": "削除",
+    "deleteSelected": "選択項目を削除",
     "mergeSelected": "選択を結合",
-    "mergeSelectedCount": "{count} 名を選択中",
+    "selectedCount": "{count} 名を選択中",
     "pagination": "{start} - {end} 件表示、全 {total} 名のメンバー",
     "tip": "ヒント：別名を追加すると、チャット履歴の相手をより正確に識別できます。別名は検索や AI 分析で使用されます。",
     "mergeModal": {
@@ -31,6 +46,10 @@
       "hint": "この操作は元に戻せません。結合される側のメッセージはすべて保持側に移動します。",
       "cancel": "キャンセル",
       "confirm": "結合を確認"
+    },
+    "batchDeleteModal": {
+      "title": "選択したメンバーを削除しますか？",
+      "content": "選択した {count} 名のメンバーと、その {messageCount} 件のメッセージを削除します。この操作は元に戻せません。"
     },
     "modal": {
       "title": "メンバーを削除しますか？",
@@ -51,43 +70,19 @@
   },
   "relationships": {
     "loading": "{'@'} インタラクションデータを分析中...",
-    "topMentioners": "📢 最も {'@'} する人",
-    "totalMentions": "全 {count} 回の {'@'}",
-    "topMentioned": "🎯 最も {'@'} される人",
-    "popularMember": "グループの人気者",
+    "rankingTitle": "{'@'} インタラクションランキング",
+    "rankModes": {
+      "mentioners": "送った {'@'}",
+      "mentioned": "受け取った {'@'}"
+    },
+    "topMentionersDescription": "送った {'@'} の回数順",
+    "topMentionedDescription": "受け取った {'@'} の回数順",
     "times": "回",
-    "oneWay": {
-      "title": "🐕 片思い検出",
-      "description": "{count} 組の片思い関係を発見（一方の {'@'} が80%以上を占める）",
-      "neverRespond": "返信なし",
-      "reverse": "逆方向 {count} 回",
-      "ratio": "{value}% 片方向"
-    },
-    "twoWay": {
-      "title": "💕 両思い検出",
-      "description": "{count} 組の頻繁な相互やり取りを発見（互いに {'@'} かつバランス度 ≥30%）",
-      "interactions": "回のやり取り",
-      "balance": "{value}% バランス"
-    },
     "emptyTitle": "📱 {'@'} インタラクション分析",
-    "empty": "{'@'} インタラクションデータがありません",
-    "modal": {
-      "title": "{name} の {'@'} 関係",
-      "topMentioned": "最も {'@'} する相手",
-      "topMentioners": "最も {'@'} してくる相手",
-      "timesCount": "{count} 回",
-      "close": "閉じる"
-    }
+    "empty": "{'@'} インタラクションデータがありません"
   },
   "private": {
     "title": "会話メンバー",
-    "description": "全 {count} 名のメンバー。検索や AI 分析に使用する別名を追加できます",
-    "messageCount": "メッセージ数",
-    "percentage": "割合 {value}%",
-    "customAlias": "カスタム別名",
-    "aliasPlaceholder": "入力して Enter で別名を追加",
-    "empty": "メンバーデータがありません",
-    "tipTitle": "ヒント",
-    "tipContent": "別名を追加すると、チャット履歴の相手をより正確に識別できます。別名は検索や AI 分析で使用されます。"
+    "description": "全 {count} 名のメンバー。検索や AI 分析に使用する別名を追加できます"
   }
 }

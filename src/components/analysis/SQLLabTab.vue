@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, nextTick, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SchemaPanel, AIHistoryModal, ResultTable, getTableLabel, getColumnLabel } from './SQLLab'
 import type { AIHistory, SQLResult, TableSchema } from './SQLLab'
+import { useDataService, useLLMService } from '@/services'
+import { useLlmStreamService } from '@/services/ai-stream/service'
+import { ThemeCard } from '@/components/UI'
 
 const { t, locale } = useI18n()
 
@@ -31,7 +34,10 @@ const isGenerating = ref(false)
 const error = ref<string | null>(null)
 const result = ref<SQLResult | null>(null)
 const lastPrompt = ref('') // 记录最后使用的 AI 提示词
-const streamingOutput = ref('') // 记录 AI 实时输出流，展示在输入框下方
+const streamingOutput = ref('')
+const thinkingOutput = ref('')
+const isThinking = ref(false)
+const thinkingPreRef = ref<HTMLPreElement | null>(null)
 
 // 弹窗状态
 const showHistoryModal = ref(false)
@@ -97,7 +103,7 @@ async function executeSQL() {
   resultTableRef.value?.resetSort()
 
   try {
-    result.value = await window.chatApi.executeSQL(props.sessionId, sql.value)
+    result.value = await useDataService().executeSQL(props.sessionId, sql.value)
   } catch (err: any) {
     error.value = err.message || String(err)
   } finally {
@@ -209,7 +215,7 @@ async function generateAndRunSQL() {
     return
   }
 
-  const hasConfig = await window.llmApi.hasConfig()
+  const hasConfig = await useLLMService().hasConfig()
   if (!hasConfig) {
     error.value = t('common.errorNoAIConfig')
     return
@@ -225,31 +231,62 @@ async function generateAndRunSQL() {
   // 开始新一轮生成时清空旧结果，确保预览区优先展示本次 AI 流式输出
   result.value = null
   error.value = null
-  // 每次开始生成前清空流式输出，避免混入上一次内容
   streamingOutput.value = ''
+  thinkingOutput.value = ''
+  isThinking.value = false
+
+  let streamError = ''
 
   try {
     const fullPrompt = buildAIPrompt(prompt, schemaList)
-    const result = await window.llmApi.chatStream(
+    const result = await useLlmStreamService().chatStream(
       [
         { role: 'system', content: '你是一个 SQLite 专家，请以 JSON 格式输出 sql 和 explanation 字段。' },
         { role: 'user', content: fullPrompt },
       ],
-      { temperature: 0.1, maxTokens: 800 },
+      { temperature: 0.1, maxTokens: 4096 },
       (chunk) => {
-        // 逐段追加流式返回内容，供外部卡片实时展示
+        if (chunk.thinking !== undefined) {
+          if (chunk.thinkingDone) {
+            isThinking.value = false
+          } else {
+            isThinking.value = true
+            if (chunk.thinking) {
+              thinkingOutput.value += chunk.thinking
+              nextTick(() => {
+                if (thinkingPreRef.value) {
+                  thinkingPreRef.value.scrollTop = thinkingPreRef.value.scrollHeight
+                }
+              })
+            }
+          }
+          return
+        }
+        if (chunk.error) {
+          streamError = chunk.error
+        }
+        if (chunk.isFinished && chunk.finishReason === 'length') {
+          streamError = t('ai.sqlLab.generate.errorTokenLimit')
+        }
         if (chunk.content) streamingOutput.value += chunk.content
       }
     )
 
     if (!result.success) {
-      error.value = result.error || t('ai.sqlLab.generate.errorGenerate')
+      error.value = result.error || streamError || t('ai.sqlLab.generate.errorGenerate')
+      return
+    }
+
+    if (streamError) {
+      error.value = streamError
       return
     }
 
     const generated = parseGeneratedResult(streamingOutput.value)
     if (!generated.sql) {
-      error.value = t('ai.sqlLab.generate.errorGenerate')
+      error.value = streamingOutput.value
+        ? `${t('ai.sqlLab.generate.errorGenerate')}: ${streamingOutput.value.slice(0, 200)}`
+        : t('ai.sqlLab.generate.errorGenerate')
       return
     }
 
@@ -293,14 +330,14 @@ watch(
     <!-- 主内容区 -->
     <div class="flex flex-1 flex-col overflow-hidden">
       <!-- SQL 编辑器区域 -->
-      <div class="flex flex-col border-b border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950">
+      <div class="flex flex-col border-b border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-page-dark">
         <div class="mx-auto w-full max-w-3xl">
           <!-- 输入区 -->
           <!-- 两种输入模式统一输入框高度，避免切换模式时界面跳动 -->
           <textarea
             v-if="inputMode === 'prompt'"
             v-model="promptInput"
-            class="h-32 w-full resize-none rounded-lg border border-gray-300 bg-white p-3 text-sm text-gray-800 focus:border-pink-500 focus:outline-none focus:ring-1 focus:ring-pink-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+            class="h-32 w-full resize-none rounded-2xl border-0 bg-white p-3 text-sm text-gray-800 shadow-[0_2px_14px_rgba(0,0,0,0.04)] outline-none ring-1 ring-gray-200/60 transition-all placeholder:text-gray-400 focus:ring-primary-500/40 focus:shadow-[0_4px_20px_rgba(0,0,0,0.08)] dark:bg-page-dark dark:text-gray-200 dark:ring-white/5 dark:placeholder:text-gray-500 dark:focus:ring-primary-500/40"
             :placeholder="t('ai.sqlLab.generate.placeholder')"
             spellcheck="false"
             @keydown="handleKeyDown($event, 'prompt')"
@@ -308,7 +345,7 @@ watch(
           <textarea
             v-else
             v-model="sql"
-            class="h-32 w-full resize-none rounded-lg border border-gray-300 bg-white p-3 font-mono text-sm text-gray-800 focus:border-pink-500 focus:outline-none focus:ring-1 focus:ring-pink-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+            class="h-32 w-full resize-none rounded-2xl border-0 bg-white p-3 font-mono text-sm text-gray-800 shadow-[0_2px_14px_rgba(0,0,0,0.04)] outline-none ring-1 ring-gray-200/60 transition-all placeholder:text-gray-400 focus:ring-primary-500/40 focus:shadow-[0_4px_20px_rgba(0,0,0,0.08)] dark:bg-page-dark dark:text-gray-200 dark:ring-white/5 dark:placeholder:text-gray-500 dark:focus:ring-primary-500/40"
             :placeholder="t('ai.sqlLab.editor.placeholder')"
             spellcheck="false"
             @keydown="handleKeyDown($event, 'sql')"
@@ -355,21 +392,38 @@ watch(
 
       <!-- 结果区域：无查询结果时显示 AI 流式输出，有结果后自动切回结果表格 -->
       <div
-        v-if="inputMode === 'prompt' && !result && !error && (streamingOutput || isGenerating)"
+        v-if="inputMode === 'prompt' && !result && !error && (streamingOutput || thinkingOutput || isGenerating)"
         class="flex-1 overflow-auto p-4"
       >
-        <div
-          class="mx-auto w-full max-w-3xl rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"
-        >
+        <ThemeCard class="mx-auto w-full max-w-3xl p-4">
           <p class="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-gray-300">
             <UIcon name="i-heroicons-cpu-chip" class="h-4 w-4" />
             {{ t('ai.sqlLab.generate.aiOutput') }}
-            <span v-if="isGenerating" class="text-pink-500">{{ t('common.generating') }}</span>
+            <span v-if="isThinking" class="text-gray-500">{{ t('ai.sqlLab.generate.thinking') }}</span>
+            <span v-else-if="isGenerating" class="text-pink-500">{{ t('common.generating') }}</span>
           </p>
-          <pre class="whitespace-pre-wrap break-all font-mono text-xs leading-5 text-gray-600 dark:text-gray-400">{{
-            streamingOutput || t('ai.sqlLab.generate.waitingAI')
-          }}</pre>
-        </div>
+
+          <!-- Thinking block -->
+          <details v-if="thinkingOutput" class="mb-3" :open="isThinking">
+            <summary class="cursor-pointer select-none text-xs font-medium text-gray-500 dark:text-gray-400">
+              {{ t('ai.sqlLab.generate.thinkingProcess') }}
+            </summary>
+            <pre
+              ref="thinkingPreRef"
+              class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-gray-200 bg-gray-50 p-2 font-mono text-xs leading-5 text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+              >{{ thinkingOutput }}</pre
+            >
+          </details>
+
+          <pre
+            v-if="streamingOutput"
+            class="whitespace-pre-wrap break-all font-mono text-xs leading-5 text-gray-600 dark:text-gray-400"
+            >{{ streamingOutput }}</pre
+          >
+          <p v-else-if="!thinkingOutput" class="font-mono text-xs text-gray-400">
+            {{ t('ai.sqlLab.generate.waitingAI') }}
+          </p>
+        </ThemeCard>
       </div>
       <ResultTable v-else ref="resultTableRef" :result="result" :error="error" :sql="sql" :prompt="lastPrompt" />
     </div>

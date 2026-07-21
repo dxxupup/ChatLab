@@ -10,9 +10,35 @@ import { storeToRefs } from 'pinia'
 import { usePromptStore } from '@/stores/prompt'
 import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
+import { useDataService, useAIService, useLLMService } from '@/services'
+import type { AIMessage as PersistedAIMessage } from '@/services/ai/types'
 import { useAssistantStore } from '@/stores/assistant'
 import { useSkillStore } from '@/stores/skill'
+import { useLLMStore } from '@/stores/llm'
 import type { TokenUsage, AgentRuntimeStatus, SerializedErrorInfo } from '@electron/shared/types'
+import { useAgentStreamService } from '@/services/ai-stream/service'
+import { buildSerializablePreprocessConfig, shouldEnsureDesensitizeRulesBeforeSerialize } from './aiPreprocessConfig'
+import type { ChartPayload, ChatEvidencePayload } from '@openchatlab/core'
+import { extractToolResultText, truncateToolResultText } from '@openchatlab/core'
+import { getDefaultGeneralAssistantId } from '@openchatlab/shared-types'
+import {
+  createRenderOnlyToolPendingBlock,
+  extractChartPayloads,
+  finishRenderOnlyToolResultBlocks,
+  isRenderOnlyTool,
+  toChartContentBlocks,
+  toRenderOnlyToolErrorBlock,
+} from './aiChatChartBlocks'
+import { extractEvidencePayload, toEvidenceContentBlock } from './aiChatEvidenceBlocks'
+import {
+  appendPlanDraftDelta,
+  removePlanDraftBlocks,
+  replacePlanDraftWithPlan,
+  type PlanBlockStatus,
+  type PlanContentBlock,
+  type PlanDraftContentBlock,
+} from '@/services/ai/planBlocks'
+import { toSerializableContentBlocks } from './aiChatContentBlocks'
 
 // 工具调用记录
 export interface ToolCallRecord {
@@ -30,6 +56,16 @@ export interface ToolBlockContent {
   status: 'running' | 'done' | 'error'
   params?: Record<string, unknown>
   durationMs?: number
+  /** Runtime-only tool row used while a render-only tool is still generating its visible block. */
+  transient?: boolean
+  /** Provider-issued tool call id; replayed verbatim so multi-turn requests stay cache-stable */
+  toolCallId?: string
+  /** Truncated tool result text persisted for history replay */
+  result?: string
+  /** Full safe text result shown to the user; history replay continues to use result. */
+  displayResult?: string
+  /** Whether the tool execution failed (from the agent runtime, not UI render errors) */
+  isError?: boolean
 }
 
 export interface MentionedMemberContext {
@@ -44,19 +80,29 @@ export interface MentionedMemberContext {
 export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'think'; tag: string; text: string; durationMs?: number }
+  | { type: 'chart'; chart: ChartPayload }
+  | { type: 'evidence'; evidence: ChatEvidencePayload }
+  | PlanContentBlock
+  | PlanDraftContentBlock
   | {
       type: 'tool'
       tool: ToolBlockContent
     }
   | { type: 'skill'; skillId: string; skillName: string }
   | { type: 'error'; error: SerializedErrorInfo }
+  | {
+      type: 'summary_meta'
+      bufferBoundaryTimestamp: number
+      compressedMessageCount: number
+    }
 
 // 消息类型
 export interface ChatMessage {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'summary'
   content: string
   timestamp: number
+  parentId?: string | null
   dataSource?: {
     toolsUsed: string[]
     toolRounds: number
@@ -91,12 +137,13 @@ interface OwnerInfo {
   displayName: string
 }
 
-interface ConversationBuffer {
+interface AIChatBuffer {
   messages: ChatMessage[]
   sourceMessages: SourceMessage[]
   currentKeywords: string[]
   assistantId: string | null
   loaded: boolean
+  sessionTokenUsage?: TokenUsage
 }
 
 export interface AIChatSessionState {
@@ -111,7 +158,7 @@ export interface AIChatSessionState {
   currentKeywords: string[]
   isLoadingSource: boolean
   isAIThinking: boolean
-  currentConversationId: string | null
+  currentAIChatId: string | null
   currentToolStatus: ToolStatus | null
   toolsUsedInCurrentRound: string[]
   sessionTokenUsage: TokenUsage
@@ -121,7 +168,7 @@ export interface AIChatSessionState {
   isAborted: boolean
   currentRequestId: string
   currentAgentRequestId: string
-  conversationBuffers: Record<string, ConversationBuffer>
+  aiChatBuffers: Record<string, AIChatBuffer>
 }
 
 export interface AIBackgroundTask {
@@ -130,7 +177,7 @@ export interface AIBackgroundTask {
   sessionId: string
   sessionName: string
   chatType: 'group' | 'private'
-  conversationId: string | null
+  aiChatId: string | null
   questionPreview: string
   startedAt: number
 }
@@ -149,16 +196,7 @@ export interface SendMessageResult {
   activeTask?: AIBackgroundTask | null
 }
 
-const DRAFT_CONVERSATION_KEY = '__draft__'
-
-/**
- * 创建对话时前端已经知道 locale，因此默认助手在这里选择即可。
- */
-function getDefaultGeneralAssistantId(locale: string): 'general_cn' | 'general_en' | 'general_ja' {
-  if (locale.startsWith('en')) return 'general_en'
-  if (locale.startsWith('ja')) return 'general_ja'
-  return 'general_cn'
-}
+const DRAFT_AI_CHAT_KEY = '__draft__'
 
 function buildTimeFilterKey(timeFilter?: { startTs: number; endTs: number }): string {
   if (!timeFilter) return 'all'
@@ -174,10 +212,54 @@ export function buildAIChatKey(params: {
 }
 
 function createEmptyTokenUsage(): TokenUsage {
-  return { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+  return { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
 }
 
-function createConversationBuffer(assistantId: string | null = null): ConversationBuffer {
+function toTokenUsage(data: { [K in keyof TokenUsage]?: number }): TokenUsage {
+  return {
+    promptTokens: data.promptTokens ?? 0,
+    completionTokens: data.completionTokens ?? 0,
+    totalTokens: data.totalTokens ?? 0,
+    cacheReadTokens: data.cacheReadTokens ?? 0,
+    cacheWriteTokens: data.cacheWriteTokens ?? 0,
+  }
+}
+
+function normalizeSerializedError(error: unknown): SerializedErrorInfo {
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>
+    return {
+      name: typeof record.name === 'string' ? record.name : null,
+      message: typeof record.message === 'string' ? record.message : '未知错误',
+      stack: typeof record.stack === 'string' ? record.stack : null,
+      statusCode: typeof record.statusCode === 'number' ? record.statusCode : null,
+      url: typeof record.url === 'string' ? record.url : null,
+      responseBody: typeof record.responseBody === 'string' ? record.responseBody : null,
+      responseHeaders:
+        record.responseHeaders && typeof record.responseHeaders === 'object'
+          ? (record.responseHeaders as Record<string, string>)
+          : null,
+      requestBody: typeof record.requestBody === 'string' ? record.requestBody : null,
+      cause: typeof record.cause === 'string' ? record.cause : null,
+      provider: typeof record.provider === 'string' ? record.provider : null,
+      friendlyMessage: typeof record.friendlyMessage === 'string' ? record.friendlyMessage : null,
+    }
+  }
+  return { name: null, message: error ? String(error) : '未知错误', stack: null }
+}
+
+function toRuntimeMessage(msg: PersistedAIMessage): ChatMessage {
+  return {
+    id: msg.id,
+    role: msg.role,
+    content: msg.content,
+    timestamp: msg.timestamp * 1000,
+    parentId: msg.parentId,
+    contentBlocks: msg.contentBlocks as ContentBlock[] | undefined,
+  }
+}
+
+function createAIChatBuffer(assistantId: string | null = null): AIChatBuffer {
   return {
     messages: [],
     sourceMessages: [],
@@ -188,7 +270,7 @@ function createConversationBuffer(assistantId: string | null = null): Conversati
 }
 
 function createSessionState(params: EnsureAIChatSessionParams): AIChatSessionState {
-  const draftBuffer = createConversationBuffer(null)
+  const draftBuffer = createAIChatBuffer(null)
   return {
     sessionId: params.sessionId,
     sessionName: params.sessionName,
@@ -201,7 +283,7 @@ function createSessionState(params: EnsureAIChatSessionParams): AIChatSessionSta
     currentKeywords: draftBuffer.currentKeywords,
     isLoadingSource: false,
     isAIThinking: false,
-    currentConversationId: null,
+    currentAIChatId: null,
     currentToolStatus: null,
     toolsUsedInCurrentRound: [],
     sessionTokenUsage: createEmptyTokenUsage(),
@@ -211,14 +293,14 @@ function createSessionState(params: EnsureAIChatSessionParams): AIChatSessionSta
     isAborted: false,
     currentRequestId: '',
     currentAgentRequestId: '',
-    conversationBuffers: {
-      [DRAFT_CONVERSATION_KEY]: draftBuffer,
+    aiChatBuffers: {
+      [DRAFT_AI_CHAT_KEY]: draftBuffer,
     },
   }
 }
 
 function getDisplayedBufferKey(state: AIChatSessionState): string {
-  return state.currentConversationId ?? DRAFT_CONVERSATION_KEY
+  return state.currentAIChatId ?? DRAFT_AI_CHAT_KEY
 }
 
 export const useAIChatStore = defineStore('aiChatRuntime', () => {
@@ -230,6 +312,7 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
   const settingsStore = useSettingsStore()
   const assistantStore = useAssistantStore()
   const skillStore = useSkillStore()
+  const llmStore = useLLMStore()
   const { aiGlobalSettings } = storeToRefs(promptStore)
 
   let pendingFocusReturn = false
@@ -272,11 +355,11 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     state: AIChatSessionState,
     bufferKey: string,
     assistantId: string | null = null
-  ): ConversationBuffer {
-    if (!state.conversationBuffers[bufferKey]) {
-      state.conversationBuffers[bufferKey] = createConversationBuffer(assistantId)
+  ): AIChatBuffer {
+    if (!state.aiChatBuffers[bufferKey]) {
+      state.aiChatBuffers[bufferKey] = createAIChatBuffer(assistantId)
     }
-    return state.conversationBuffers[bufferKey]
+    return state.aiChatBuffers[bufferKey]
   }
 
   /**
@@ -284,22 +367,31 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
    * 这里只切换显示，不会影响后台正在推理的 buffer。
    */
   function bindDisplayedBuffer(state: AIChatSessionState, bufferKey: string): void {
+    // 保存当前对话的 token 使用量
+    const currentKey = state.currentAIChatId ?? DRAFT_AI_CHAT_KEY
+    const currentBuffer = state.aiChatBuffers[currentKey]
+    if (currentBuffer) {
+      currentBuffer.sessionTokenUsage = { ...state.sessionTokenUsage }
+    }
+
     const buffer = getOrCreateBuffer(state, bufferKey)
-    state.currentConversationId = bufferKey === DRAFT_CONVERSATION_KEY ? null : bufferKey
+    state.currentAIChatId = bufferKey === DRAFT_AI_CHAT_KEY ? null : bufferKey
     state.messages = buffer.messages
     state.sourceMessages = buffer.sourceMessages
     state.currentKeywords = buffer.currentKeywords
     state.selectedAssistantId = buffer.assistantId
+    state.sessionTokenUsage = buffer.sessionTokenUsage ? { ...buffer.sessionTokenUsage } : createEmptyTokenUsage()
+    state.agentStatus = null
   }
 
-  function renameBufferKey(state: AIChatSessionState, fromKey: string, toKey: string): ConversationBuffer {
+  function renameBufferKey(state: AIChatSessionState, fromKey: string, toKey: string): AIChatBuffer {
     const buffer = getOrCreateBuffer(state, fromKey)
-    state.conversationBuffers[toKey] = buffer
+    state.aiChatBuffers[toKey] = buffer
     if (fromKey !== toKey) {
-      delete state.conversationBuffers[fromKey]
+      delete state.aiChatBuffers[fromKey]
     }
-    if (state.currentConversationId === null && fromKey === DRAFT_CONVERSATION_KEY) {
-      state.currentConversationId = toKey
+    if (state.currentAIChatId === null && fromKey === DRAFT_AI_CHAT_KEY) {
+      state.currentAIChatId = toKey
     }
     return buffer
   }
@@ -333,7 +425,7 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     }
 
     try {
-      const members = await window.chatApi.getMembers(state.sessionId)
+      const members = await useDataService().getMembers(state.sessionId)
       const ownerMember = members.find((member) => member.platformId === ownerId)
       state.ownerInfo = ownerMember
         ? {
@@ -356,7 +448,7 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     chatKey: string,
     content: string,
     requestId: string,
-    conversationId: string | null = null
+    aiChatId: string | null = null
   ): void {
     const state = getSessionState(chatKey)
     if (!state) return
@@ -367,7 +459,7 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
       sessionId: state.sessionId,
       sessionName: state.sessionName,
       chatType: state.chatType,
-      conversationId,
+      aiChatId,
       questionPreview: content.trim().slice(0, 80),
       startedAt: Date.now(),
     }
@@ -381,13 +473,13 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
   }
 
   /**
-   * 会话创建成功后，把后台任务绑定到真实 conversationId。
+   * 会话创建成功后，把后台任务绑定到真实 aiChatId。
    * 单独抽成 helper，避免在长 async 流程里触发异常的类型缩窄。
    */
-  function updateActiveTaskConversationId(chatKey: string, conversationId: string): void {
+  function updateActiveTaskAIChatId(chatKey: string, aiChatId: string): void {
     if (!activeTask.value) return
     if (activeTask.value.chatKey !== chatKey) return
-    activeTask.value.conversationId = conversationId
+    activeTask.value.aiChatId = aiChatId
   }
 
   function buildFallbackAgentStatus(state: AIChatSessionState): AgentRuntimeStatus {
@@ -426,34 +518,28 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     return true
   }
 
-  async function loadConversation(chatKey: string, conversationId: string): Promise<boolean> {
+  async function loadAIChat(chatKey: string, aiChatId: string): Promise<boolean> {
     const state = getSessionState(chatKey)
     if (!state) return false
 
     try {
-      const conversation = await window.aiApi.getConversation(conversationId)
-      const buffer = getOrCreateBuffer(state, conversationId, conversation?.assistantId ?? null)
+      const conversation = await useAIService().getAIChat(aiChatId)
+      const buffer = getOrCreateBuffer(state, aiChatId, conversation?.assistantId ?? null)
 
       if (!buffer.loaded) {
-        const history = await window.aiApi.getMessages(conversationId)
-        buffer.messages.splice(
-          0,
-          buffer.messages.length,
-          ...history.map((msg) => ({
-            id: msg.id,
-            role: msg.role,
-            content: msg.content,
-            timestamp: msg.timestamp * 1000,
-            contentBlocks: msg.contentBlocks as ContentBlock[] | undefined,
-          }))
-        )
+        const [history, tokenUsage] = await Promise.all([
+          useAIService().getMessages(aiChatId),
+          useAIService().getAIChatTokenUsage(aiChatId),
+        ])
+        buffer.messages.splice(0, buffer.messages.length, ...history.map((msg) => toRuntimeMessage(msg)))
         buffer.sourceMessages.splice(0, buffer.sourceMessages.length)
         buffer.currentKeywords.splice(0, buffer.currentKeywords.length)
+        buffer.sessionTokenUsage = toTokenUsage(tokenUsage)
         buffer.loaded = true
       }
 
       buffer.assistantId = conversation?.assistantId ?? buffer.assistantId ?? null
-      bindDisplayedBuffer(state, conversationId)
+      bindDisplayedBuffer(state, aiChatId)
       applySessionAssistantSelection(chatKey)
       return true
     } catch (error) {
@@ -462,12 +548,12 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     }
   }
 
-  function focusConversation(chatKey: string, conversationId: string | null): boolean {
+  function focusAIChat(chatKey: string, aiChatId: string | null): boolean {
     const state = getSessionState(chatKey)
     if (!state) return false
 
-    const bufferKey = conversationId ?? DRAFT_CONVERSATION_KEY
-    if (!state.conversationBuffers[bufferKey]) {
+    const bufferKey = aiChatId ?? DRAFT_AI_CHAT_KEY
+    if (!state.aiChatBuffers[bufferKey]) {
       return false
     }
 
@@ -476,10 +562,10 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     return true
   }
 
-  function focusActiveTaskConversation(): boolean {
+  function focusActiveTaskAIChat(): boolean {
     if (!activeTask.value) return false
     pendingFocusReturn = true
-    return focusConversation(activeTask.value.chatKey, activeTask.value.conversationId)
+    return focusAIChat(activeTask.value.chatKey, activeTask.value.aiChatId)
   }
 
   /**
@@ -503,16 +589,16 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
       const defaultId = getDefaultGeneralAssistantId(state.locale)
       selectAssistantForSession(chatKey, defaultId)
     }
-    startNewConversation(chatKey)
+    startNewAIChat(chatKey)
   }
 
-  function startNewConversation(chatKey: string, welcomeMessage?: string): boolean {
+  function startNewAIChat(chatKey: string, welcomeMessage?: string): boolean {
     const state = getSessionState(chatKey)
     if (!state || state.isAIThinking) return false
 
-    const draftBuffer = createConversationBuffer(state.selectedAssistantId)
-    state.conversationBuffers[DRAFT_CONVERSATION_KEY] = draftBuffer
-    bindDisplayedBuffer(state, DRAFT_CONVERSATION_KEY)
+    const draftBuffer = createAIChatBuffer(state.selectedAssistantId)
+    state.aiChatBuffers[DRAFT_AI_CHAT_KEY] = draftBuffer
+    bindDisplayedBuffer(state, DRAFT_AI_CHAT_KEY)
     state.currentToolStatus = null
     state.toolsUsedInCurrentRound = []
     state.isLoadingSource = false
@@ -542,6 +628,223 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     // Agent 模式下由工具自行控制
   }
 
+  interface StreamBlockHelpers {
+    updateAIMessage: (updates: Partial<ChatMessage>) => void
+    appendTextToBlocks: (text: string) => void
+    appendThinkToBlocks: (text: string, tag?: string, durationMs?: number) => void
+    appendChartsToBlocks: (charts: ChartPayload[]) => void
+    appendEvidenceToBlocks: (evidence: ChatEvidencePayload) => void
+    appendPlanDraftToBlocks: (delta: string) => void
+    appendPlanToBlocks: (plan: PlanContentBlock) => void
+    removePlanDraftsFromBlocks: () => void
+    updatePlanBlockStatus: (status: PlanBlockStatus) => void
+    appendErrorToBlocks: (error: SerializedErrorInfo) => void
+    addToolBlock: (toolName: string, params?: Record<string, unknown>, toolCallId?: string) => void
+    addRenderOnlyToolPendingBlock: (toolName: string, params?: Record<string, unknown>, toolCallId?: string) => void
+    updateRenderOnlyToolResult: (
+      toolName: string,
+      toolCallId: string | undefined,
+      charts: ChartPayload[],
+      errorBlock: ReturnType<typeof toRenderOnlyToolErrorBlock>,
+      toolFailed?: boolean
+    ) => void
+    updateToolBlockStatus: (
+      toolName: string,
+      status: 'done' | 'error',
+      completion?: { toolCallId?: string; result?: string; displayResult?: string; isError?: boolean }
+    ) => void
+  }
+
+  function createStreamBlockHelpers(targetBuffer: AIChatBuffer, getAiMessageIndex: () => number): StreamBlockHelpers {
+    const updateAIMessage = (updates: Partial<ChatMessage>) => {
+      const idx = getAiMessageIndex()
+      targetBuffer.messages[idx] = { ...targetBuffer.messages[idx], ...updates }
+    }
+
+    const appendTextToBlocks = (text: string) => {
+      if (!text) return
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      const lastBlock = blocks[blocks.length - 1]
+      if (text.trim().length === 0 && (!lastBlock || lastBlock.type !== 'text')) return
+      if (lastBlock && lastBlock.type === 'text') {
+        lastBlock.text += text
+      } else {
+        blocks.push({ type: 'text', text })
+      }
+      updateAIMessage({ contentBlocks: [...blocks], content: targetBuffer.messages[idx].content + text })
+    }
+
+    const appendThinkToBlocks = (text: string, tag?: string, durationMs?: number) => {
+      if (!text && durationMs === undefined) return
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      const thinkTag = tag || 'think'
+      const lastBlock = blocks[blocks.length - 1]
+      let targetBlock: ContentBlock | undefined = lastBlock
+      if (lastBlock && lastBlock.type === 'think' && lastBlock.tag === thinkTag) {
+        lastBlock.text += text
+      } else if (text.trim().length > 0) {
+        targetBlock = { type: 'think', tag: thinkTag, text }
+        blocks.push(targetBlock)
+      } else if (durationMs !== undefined) {
+        for (let index = blocks.length - 1; index >= 0; index--) {
+          const block = blocks[index]
+          if (block.type === 'think' && block.tag === thinkTag) {
+            targetBlock = block
+            break
+          }
+        }
+      }
+      if (durationMs !== undefined && targetBlock && targetBlock.type === 'think') {
+        targetBlock.durationMs = durationMs
+      }
+      updateAIMessage({ contentBlocks: [...blocks] })
+    }
+
+    const appendChartsToBlocks = (charts: ChartPayload[]) => {
+      if (charts.length === 0) return
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      blocks.push(...toChartContentBlocks(charts))
+      updateAIMessage({ contentBlocks: [...blocks] })
+    }
+
+    const appendEvidenceToBlocks = (evidence: ChatEvidencePayload) => {
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      blocks.push(toEvidenceContentBlock(evidence))
+      updateAIMessage({ contentBlocks: [...blocks] })
+    }
+
+    const appendPlanDraftToBlocks = (delta: string) => {
+      if (!delta) return
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      updateAIMessage({ contentBlocks: [...appendPlanDraftDelta(blocks, delta)] })
+    }
+
+    const appendPlanToBlocks = (plan: PlanContentBlock) => {
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      updateAIMessage({ contentBlocks: [...replacePlanDraftWithPlan(blocks, plan)] })
+    }
+
+    const removePlanDraftsFromBlocks = () => {
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      updateAIMessage({ contentBlocks: [...removePlanDraftBlocks(blocks)] })
+    }
+
+    const updatePlanBlockStatus = (status: PlanBlockStatus) => {
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      for (let index = blocks.length - 1; index >= 0; index--) {
+        const block = blocks[index]
+        if (block.type === 'plan') {
+          block.status = status
+          break
+        }
+      }
+      updateAIMessage({ contentBlocks: [...blocks] })
+    }
+
+    const appendErrorToBlocks = (error: SerializedErrorInfo) => {
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      blocks.push({ type: 'error', error })
+      updateAIMessage({ contentBlocks: [...blocks] })
+    }
+
+    const addToolBlock = (toolName: string, params?: Record<string, unknown>, toolCallId?: string) => {
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      blocks.push({
+        type: 'tool',
+        tool: { name: toolName, displayName: toolName, status: 'running', params, toolCallId },
+      })
+      updateAIMessage({ contentBlocks: [...blocks] })
+    }
+
+    const addRenderOnlyToolPendingBlock = (toolName: string, params?: Record<string, unknown>, toolCallId?: string) => {
+      const pendingBlock = createRenderOnlyToolPendingBlock(toolName, params, toolCallId)
+      if (!pendingBlock) return
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      blocks.push(pendingBlock)
+      updateAIMessage({ contentBlocks: [...blocks] })
+    }
+
+    const updateRenderOnlyToolResult = (
+      toolName: string,
+      toolCallId: string | undefined,
+      charts: ChartPayload[],
+      errorBlock: ReturnType<typeof toRenderOnlyToolErrorBlock>
+    ) => {
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+
+      updateAIMessage({
+        contentBlocks: finishRenderOnlyToolResultBlocks(blocks, toolName, toolCallId, charts, errorBlock),
+      })
+    }
+
+    const updateToolBlockStatus = (
+      toolName: string,
+      status: 'done' | 'error',
+      completion?: { toolCallId?: string; result?: string; displayResult?: string; isError?: boolean }
+    ) => {
+      const idx = getAiMessageIndex()
+      const blocks = targetBuffer.messages[idx].contentBlocks || []
+      const isRunningTool = (block: ContentBlock): block is Extract<ContentBlock, { type: 'tool' }> =>
+        block.type === 'tool' && block.tool.status === 'running'
+      // 优先按 toolCallId 精确匹配（支持同名工具并行调用），找不到再按名称回退
+      let target: Extract<ContentBlock, { type: 'tool' }> | undefined
+      if (completion?.toolCallId) {
+        for (let index = blocks.length - 1; index >= 0; index--) {
+          const block = blocks[index]
+          if (isRunningTool(block) && block.tool.toolCallId === completion.toolCallId) {
+            target = block
+            break
+          }
+        }
+      }
+      if (!target) {
+        for (let index = blocks.length - 1; index >= 0; index--) {
+          const block = blocks[index]
+          if (isRunningTool(block) && block.tool.name === toolName) {
+            target = block
+            break
+          }
+        }
+      }
+      if (target) {
+        target.tool.status = status
+        if (completion?.result !== undefined) target.tool.result = completion.result
+        if (completion?.displayResult !== undefined) target.tool.displayResult = completion.displayResult
+        if (completion?.isError !== undefined) target.tool.isError = completion.isError
+      }
+      updateAIMessage({ contentBlocks: [...blocks] })
+    }
+
+    return {
+      updateAIMessage,
+      appendTextToBlocks,
+      appendThinkToBlocks,
+      appendChartsToBlocks,
+      appendEvidenceToBlocks,
+      appendPlanDraftToBlocks,
+      appendPlanToBlocks,
+      removePlanDraftsFromBlocks,
+      updatePlanBlockStatus,
+      appendErrorToBlocks,
+      addToolBlock,
+      addRenderOnlyToolPendingBlock,
+      updateRenderOnlyToolResult,
+      updateToolBlockStatus,
+    }
+  }
+
   async function sendMessage(
     chatKey: string,
     content: string,
@@ -562,21 +865,23 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
 
     const thisRequestId = generateId('req')
     const initialBufferKey = getDisplayedBufferKey(state)
-    let resolvedConversationId = initialBufferKey === DRAFT_CONVERSATION_KEY ? null : initialBufferKey
+    let resolvedAIChatId = initialBufferKey === DRAFT_AI_CHAT_KEY ? null : initialBufferKey
     const targetBuffer = getOrCreateBuffer(state, initialBufferKey, state.selectedAssistantId)
     // 在 try 外部声明，以便 catch 块能正确引用当前轮次的用户消息
     let currentUserMessage: ChatMessage | undefined
+    let lastDoneUsage: TokenUsage | undefined
 
     targetBuffer.assistantId = state.selectedAssistantId
     targetBuffer.loaded = true
 
-    setActiveTaskMeta(chatKey, content, thisRequestId, resolvedConversationId)
+    setActiveTaskMeta(chatKey, content, thisRequestId, resolvedAIChatId)
     applySessionAssistantSelection(chatKey)
     void ensureOwnerInfo(chatKey)
 
     const currentSkillId = skillStore.activeSkillId
     const currentSkillName = skillStore.activeSkill?.name
     const autoSkillEnabled = aiGlobalSettings.value.enableAutoSkill ?? true
+    const chartAutoMode = autoSkillEnabled ? (aiGlobalSettings.value.chartAutoMode ?? 'suggest') : 'explicit'
     const currentMentionedMembers = (options?.mentionedMembers ?? []).map((member) => ({
       memberId: member.memberId,
       platformId: member.platformId,
@@ -595,7 +900,7 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     state.currentAgentRequestId = ''
 
     try {
-      const hasConfig = await window.llmApi.hasConfig()
+      const hasConfig = await useLLMService().hasConfig()
       if (state.isAborted) {
         clearActiveTask(chatKey, thisRequestId)
         return { success: false, reason: 'aborted' }
@@ -643,98 +948,30 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
         })
       }
       targetBuffer.messages.push(aiMessage)
-      const aiMessageIndex = targetBuffer.messages.length - 1
+      let aiMessageIndex = targetBuffer.messages.length - 1
       let hasStreamError = false
 
-      const updateAIMessage = (updates: Partial<ChatMessage>) => {
-        targetBuffer.messages[aiMessageIndex] = {
-          ...targetBuffer.messages[aiMessageIndex],
-          ...updates,
-        }
-      }
-
-      const appendTextToBlocks = (text: string) => {
-        if (!text) return
-
-        const blocks = targetBuffer.messages[aiMessageIndex].contentBlocks || []
-        const lastBlock = blocks[blocks.length - 1]
-
-        if (text.trim().length === 0 && (!lastBlock || lastBlock.type !== 'text')) {
-          return
-        }
-
-        if (lastBlock && lastBlock.type === 'text') {
-          lastBlock.text += text
-        } else {
-          blocks.push({ type: 'text', text })
-        }
-
-        updateAIMessage({
-          contentBlocks: [...blocks],
-          content: targetBuffer.messages[aiMessageIndex].content + text,
-        })
-      }
-
-      const appendThinkToBlocks = (text: string, tag?: string, durationMs?: number) => {
-        if (!text && durationMs === undefined) return
-
-        const blocks = targetBuffer.messages[aiMessageIndex].contentBlocks || []
-        const thinkTag = tag || 'think'
-        const lastBlock = blocks[blocks.length - 1]
-
-        let targetBlock = lastBlock
-        if (lastBlock && lastBlock.type === 'think' && lastBlock.tag === thinkTag) {
-          lastBlock.text += text
-        } else if (text.trim().length > 0) {
-          targetBlock = { type: 'think', tag: thinkTag, text }
-          blocks.push(targetBlock)
-        } else if (durationMs !== undefined) {
-          for (let index = blocks.length - 1; index >= 0; index--) {
-            const block = blocks[index]
-            if (block.type === 'think' && block.tag === thinkTag) {
-              targetBlock = block
-              break
-            }
-          }
-        }
-
-        if (durationMs !== undefined && targetBlock && targetBlock.type === 'think') {
-          targetBlock.durationMs = durationMs
-        }
-
-        updateAIMessage({ contentBlocks: [...blocks] })
-      }
-
-      const addToolBlock = (toolName: string, params?: Record<string, unknown>) => {
-        const blocks = targetBuffer.messages[aiMessageIndex].contentBlocks || []
-        blocks.push({
-          type: 'tool',
-          tool: {
-            name: toolName,
-            displayName: toolName,
-            status: 'running',
-            params,
-          },
-        })
-        updateAIMessage({ contentBlocks: [...blocks] })
-      }
-
-      const updateToolBlockStatus = (toolName: string, status: 'done' | 'error') => {
-        const blocks = targetBuffer.messages[aiMessageIndex].contentBlocks || []
-        for (let index = blocks.length - 1; index >= 0; index--) {
-          const block = blocks[index]
-          if (block.type === 'tool' && block.tool.name === toolName && block.tool.status === 'running') {
-            block.tool.status = status
-            break
-          }
-        }
-        updateAIMessage({ contentBlocks: [...blocks] })
-      }
+      const {
+        updateAIMessage,
+        appendTextToBlocks,
+        appendThinkToBlocks,
+        appendChartsToBlocks,
+        appendEvidenceToBlocks,
+        appendPlanDraftToBlocks,
+        appendPlanToBlocks,
+        removePlanDraftsFromBlocks,
+        updatePlanBlockStatus,
+        appendErrorToBlocks,
+        addToolBlock,
+        addRenderOnlyToolPendingBlock,
+        updateRenderOnlyToolResult,
+        updateToolBlockStatus,
+      } = createStreamBlockHelpers(targetBuffer, () => aiMessageIndex)
 
       const currentAssistantId = targetBuffer.assistantId ?? getDefaultGeneralAssistantId(state.locale)
-      if (!resolvedConversationId) {
+      if (!resolvedAIChatId) {
         const title = content.slice(0, 50) + (content.length > 50 ? '...' : '')
-        const conversation = await window.aiApi.createConversation(state.sessionId, title, currentAssistantId)
+        const conversation = await useAIService().createAIChat(state.sessionId, title, currentAssistantId)
         if (state.isAborted) {
           updateAIMessage({ isStreaming: false })
           clearActiveTask(chatKey, thisRequestId)
@@ -747,55 +984,54 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
           return { success: false, reason: 'busy', activeTask: activeTask.value }
         }
 
-        resolvedConversationId = conversation.id
-        renameBufferKey(state, DRAFT_CONVERSATION_KEY, conversation.id)
+        resolvedAIChatId = conversation.id
+        renameBufferKey(state, DRAFT_AI_CHAT_KEY, conversation.id)
         targetBuffer.assistantId = currentAssistantId
-        updateActiveTaskConversationId(chatKey, conversation.id)
+        updateActiveTaskAIChatId(chatKey, conversation.id)
       }
-
-      const maxHistoryRounds = aiGlobalSettings.value.maxHistoryRounds ?? 5
-      const preprocessConfig = settingsStore.aiPreprocessConfig
-      const hasPreprocess =
-        preprocessConfig.dataCleaning ||
-        preprocessConfig.mergeConsecutive ||
-        preprocessConfig.blacklistKeywords.length > 0 ||
-        preprocessConfig.denoise ||
-        preprocessConfig.desensitize ||
-        preprocessConfig.anonymizeNames
-
-      const serializablePreprocessConfig = hasPreprocess
-        ? {
-            dataCleaning: preprocessConfig.dataCleaning,
-            mergeConsecutive: preprocessConfig.mergeConsecutive,
-            mergeWindowSeconds: preprocessConfig.mergeWindowSeconds,
-            blacklistKeywords: [...preprocessConfig.blacklistKeywords],
-            denoise: preprocessConfig.denoise,
-            desensitize: preprocessConfig.desensitize,
-            desensitizeRules: preprocessConfig.desensitizeRules.map((rule) => ({
-              ...rule,
-              locales: [...rule.locales],
-            })),
-            anonymizeNames: preprocessConfig.anonymizeNames,
-          }
-        : undefined
 
       const context = {
         sessionId: state.sessionId,
-        conversationId: resolvedConversationId,
+        aiChatId: resolvedAIChatId,
         timeFilter: state.timeFilter ? { startTs: state.timeFilter.startTs, endTs: state.timeFilter.endTs } : undefined,
         maxMessagesLimit: aiGlobalSettings.value.maxMessagesPerRequest,
         ownerInfo: state.ownerInfo
           ? { platformId: state.ownerInfo.platformId, displayName: state.ownerInfo.displayName }
           : undefined,
         mentionedMembers: currentMentionedMembers.length > 0 ? currentMentionedMembers : undefined,
-        preprocessConfig: serializablePreprocessConfig,
+        preprocessConfig: await buildReadySerializablePreprocessConfig(),
         searchContextBefore: aiGlobalSettings.value.searchContextBefore,
         searchContextAfter: aiGlobalSettings.value.searchContextAfter,
       }
 
-      const { requestId: agentReqId, promise: agentPromise } = window.agentApi.runStream(
-        content,
-        context,
+      const { requestId: agentReqId, promise: agentPromise } = useAgentStreamService().runStream(
+        {
+          userMessage: content,
+          sessionId: state.sessionId,
+          aiChatId: resolvedAIChatId,
+          timeFilter: context.timeFilter,
+          maxMessagesLimit: context.maxMessagesLimit,
+          ownerInfo: context.ownerInfo,
+          mentionedMembers: context.mentionedMembers,
+          preprocessConfig: context.preprocessConfig,
+          chatType: state.chatType,
+          locale: state.locale,
+          assistantId: currentAssistantId,
+          skillId: currentSkillId,
+          enableAutoSkill: !currentSkillId ? autoSkillEnabled : undefined,
+          chartAutoMode: !currentSkillId ? chartAutoMode : undefined,
+          compressionConfig: {
+            enabled: aiGlobalSettings.value.contextCompression?.enabled ?? false,
+            tokenThresholdPercent: aiGlobalSettings.value.contextCompression?.tokenThresholdPercent ?? 75,
+            bufferSizePercent: aiGlobalSettings.value.contextCompression?.bufferSizePercent ?? 20,
+            maxToolResultPercent: aiGlobalSettings.value.contextCompression?.maxToolResultPercent ?? 50,
+          },
+          thinkingLevel: (() => {
+            const cfg = llmStore.defaultAssistant
+            if (!cfg?.configId || !cfg?.modelId) return undefined
+            return promptStore.getThinkingLevel(cfg.configId, cfg.modelId)
+          })(),
+        },
         (chunk) => {
           if (state.isAborted || thisRequestId !== state.currentRequestId) {
             return
@@ -826,21 +1062,67 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
                   status: 'running',
                 }
                 state.toolsUsedInCurrentRound.push(chunk.toolName)
-                addToolBlock(chunk.toolName, toolParams)
+                if (isRenderOnlyTool(chunk.toolName)) {
+                  addRenderOnlyToolPendingBlock(chunk.toolName, toolParams, chunk.toolCallId)
+                } else {
+                  addToolBlock(chunk.toolName, toolParams, chunk.toolCallId)
+                }
               }
               break
 
             case 'tool_result':
               if (chunk.toolName) {
+                const charts = extractChartPayloads(chunk.toolResult)
+                const renderOnlyError = toRenderOnlyToolErrorBlock(chunk.toolName, chunk.toolResult)
+                if (isRenderOnlyTool(chunk.toolName)) {
+                  updateRenderOnlyToolResult(chunk.toolName, chunk.toolCallId, charts, renderOnlyError)
+                } else {
+                  appendChartsToBlocks(charts)
+                }
+                const evidence = extractEvidencePayload(chunk.toolResult)
+                if (evidence) {
+                  appendEvidenceToBlocks(evidence)
+                }
+                if (renderOnlyError) {
+                  if (!isRenderOnlyTool(chunk.toolName)) {
+                    appendErrorToBlocks(renderOnlyError.error)
+                  }
+                }
+                const toolFailed = renderOnlyError !== null || chunk.toolIsError === true
                 if (state.currentToolStatus?.name === chunk.toolName) {
                   state.currentToolStatus = {
                     ...state.currentToolStatus,
-                    status: 'done',
+                    status: toolFailed ? 'error' : 'done',
                   }
                 }
-                updateToolBlockStatus(chunk.toolName, 'done')
+                if (!isRenderOnlyTool(chunk.toolName)) {
+                  const resultText = extractToolResultText(chunk.toolResult)
+                  updateToolBlockStatus(chunk.toolName, toolFailed ? 'error' : 'done', {
+                    toolCallId: chunk.toolCallId,
+                    result: truncateToolResultText(resultText),
+                    displayResult: resultText,
+                    isError: chunk.toolIsError,
+                  })
+                }
               }
               state.isLoadingSource = false
+              break
+
+            case 'plan_delta':
+              if (chunk.planDelta) {
+                appendPlanDraftToBlocks(chunk.planDelta)
+              }
+              break
+
+            case 'plan':
+              if (chunk.plan) {
+                appendPlanToBlocks(chunk.plan)
+                updatePlanBlockStatus('executing')
+              }
+              break
+
+            case 'plan_skipped':
+              removePlanDraftsFromBlocks()
               break
 
             case 'status':
@@ -849,19 +1131,39 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
               }
               break
 
+            case 'compression_done':
+              if (chunk.compressionResult) {
+                const summaryMsg: ChatMessage = {
+                  id: `summary-${Date.now()}`,
+                  role: 'summary',
+                  content: chunk.compressionResult.summaryContent,
+                  timestamp: chunk.compressionResult.timestamp,
+                }
+                const insertIdx = Math.max(0, targetBuffer.messages.length - 1)
+                targetBuffer.messages.splice(insertIdx, 0, summaryMsg)
+                aiMessageIndex++
+              }
+              break
+
             case 'done':
               state.currentToolStatus = null
+              if (!hasStreamError) updatePlanBlockStatus('done')
               if (chunk.usage) {
+                lastDoneUsage = { ...chunk.usage }
                 state.sessionTokenUsage = {
                   promptTokens: state.sessionTokenUsage.promptTokens + chunk.usage.promptTokens,
                   completionTokens: state.sessionTokenUsage.completionTokens + chunk.usage.completionTokens,
                   totalTokens: state.sessionTokenUsage.totalTokens + chunk.usage.totalTokens,
+                  cacheReadTokens: state.sessionTokenUsage.cacheReadTokens + chunk.usage.cacheReadTokens,
+                  cacheWriteTokens: state.sessionTokenUsage.cacheWriteTokens + chunk.usage.cacheWriteTokens,
                 }
               }
               setAgentPhase(state, 'completed', chunk.usage ? { totalUsage: chunk.usage } : undefined)
               break
 
             case 'error':
+              removePlanDraftsFromBlocks()
+              updatePlanBlockStatus('skipped')
               if (state.currentToolStatus) {
                 state.currentToolStatus = {
                   ...state.currentToolStatus,
@@ -874,24 +1176,18 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
                 const blocks = targetBuffer.messages[aiMessageIndex].contentBlocks || []
                 blocks.push({
                   type: 'error',
-                  error: chunk.error || { name: null, message: '未知错误', stack: null },
+                  error: normalizeSerializedError(chunk.error),
                 })
                 updateAIMessage({ contentBlocks: [...blocks], isStreaming: false })
               }
               setAgentPhase(state, 'error')
               break
           }
-        },
-        state.chatType,
-        state.locale,
-        maxHistoryRounds,
-        currentAssistantId,
-        currentSkillId,
-        !currentSkillId ? autoSkillEnabled : undefined
+        }
       )
 
       state.currentAgentRequestId = agentReqId
-      setActiveTaskMeta(chatKey, content, agentReqId, resolvedConversationId)
+      setActiveTaskMeta(chatKey, content, agentReqId, resolvedAIChatId)
 
       const result = await agentPromise
       if (state.isAborted) {
@@ -914,21 +1210,60 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
           isStreaming: false,
         }
 
-        await saveConversation(resolvedConversationId, userMessage, targetBuffer.messages[aiMessageIndex])
+        const savedMessages = await saveAIChatMessages(
+          resolvedAIChatId,
+          userMessage,
+          targetBuffer.messages[aiMessageIndex],
+          lastDoneUsage
+        )
+        if (savedMessages) {
+          Object.assign(userMessage, savedMessages.userMessage)
+          targetBuffer.messages[aiMessageIndex] = {
+            ...targetBuffer.messages[aiMessageIndex],
+            ...savedMessages.assistantMessage,
+            isStreaming: false,
+          }
+        }
       } else if (!hasStreamError) {
         const blocks = targetBuffer.messages[aiMessageIndex].contentBlocks || []
         blocks.push({
           type: 'error',
-          error: result.error || { name: null, message: '未知错误', stack: null },
+          error: normalizeSerializedError(result.error),
         })
         targetBuffer.messages[aiMessageIndex] = {
           ...targetBuffer.messages[aiMessageIndex],
           contentBlocks: [...blocks],
           isStreaming: false,
         }
-        await saveConversation(resolvedConversationId, userMessage, targetBuffer.messages[aiMessageIndex])
+        const savedMessages = await saveAIChatMessages(
+          resolvedAIChatId,
+          userMessage,
+          targetBuffer.messages[aiMessageIndex],
+          lastDoneUsage
+        )
+        if (savedMessages) {
+          Object.assign(userMessage, savedMessages.userMessage)
+          targetBuffer.messages[aiMessageIndex] = {
+            ...targetBuffer.messages[aiMessageIndex],
+            ...savedMessages.assistantMessage,
+            isStreaming: false,
+          }
+        }
       } else {
-        await saveConversation(resolvedConversationId, userMessage, targetBuffer.messages[aiMessageIndex])
+        const savedMessages = await saveAIChatMessages(
+          resolvedAIChatId,
+          userMessage,
+          targetBuffer.messages[aiMessageIndex],
+          lastDoneUsage
+        )
+        if (savedMessages) {
+          Object.assign(userMessage, savedMessages.userMessage)
+          targetBuffer.messages[aiMessageIndex] = {
+            ...targetBuffer.messages[aiMessageIndex],
+            ...savedMessages.assistantMessage,
+            isStreaming: false,
+          }
+        }
       }
 
       return { success: true }
@@ -951,7 +1286,7 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
         // 优先使用当前轮次的用户消息，避免多轮对话取到第一条历史消息
         const userMsg = currentUserMessage || targetBuffer.messages.findLast((m) => m.role === 'user')
         if (userMsg) {
-          await saveConversation(resolvedConversationId, userMsg, lastMessage)
+          await saveAIChatMessages(resolvedAIChatId, userMsg, lastMessage, lastDoneUsage)
         }
       }
 
@@ -967,30 +1302,525 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     }
   }
 
-  async function saveConversation(
-    conversationId: string | null,
+  async function saveAIChatMessages(
+    aiChatId: string | null,
     userMsg: ChatMessage,
-    aiMsg: ChatMessage
-  ): Promise<void> {
+    aiMsg: ChatMessage,
+    tokenUsage?: TokenUsage
+  ): Promise<{ userMessage: ChatMessage; assistantMessage: ChatMessage } | null> {
     try {
-      if (!conversationId) {
-        return
+      if (!aiChatId) {
+        return null
       }
 
-      await window.aiApi.addMessage(conversationId, 'user', userMsg.content)
-      const serializableContentBlocks = aiMsg.contentBlocks
-        ? JSON.parse(JSON.stringify(aiMsg.contentBlocks))
-        : undefined
-      await window.aiApi.addMessage(
-        conversationId,
+      const savedUserMessage = await useAIService().addMessage(aiChatId, 'user', userMsg.content)
+      const serializableContentBlocks = toSerializableContentBlocks(aiMsg.contentBlocks)
+      const savedAssistantMessage = await useAIService().addMessage(
+        aiChatId,
         'assistant',
         aiMsg.content,
         undefined,
         undefined,
-        serializableContentBlocks
+        serializableContentBlocks,
+        tokenUsage
       )
+      return {
+        userMessage: toRuntimeMessage(savedUserMessage),
+        assistantMessage: toRuntimeMessage(savedAssistantMessage),
+      }
     } catch (error) {
       console.error('[AI] 保存对话失败：', error)
+      return null
+    }
+  }
+
+  async function buildReadySerializablePreprocessConfig() {
+    const preprocessConfig = settingsStore.aiPreprocessConfig
+    if (shouldEnsureDesensitizeRulesBeforeSerialize(preprocessConfig)) {
+      await settingsStore.ensureDesensitizeRules()
+    }
+
+    return buildSerializablePreprocessConfig(settingsStore.aiPreprocessConfig)
+  }
+
+  function normalizeMentionLookupText(value: string): string {
+    return value
+      .trim()
+      .replace(/^[\s"'“”‘’([{<]+|[\s"'“”‘’)\]}>.,!?;:，。！？；：、]+$/g, '')
+      .toLocaleLowerCase()
+  }
+
+  async function resolveMentionedMembersFromContent(
+    state: AIChatSessionState,
+    content: string
+  ): Promise<MentionedMemberContext[]> {
+    const mentionTokens = new Set<string>()
+    for (const match of content.matchAll(/@([^\s@]+)/g)) {
+      const token = normalizeMentionLookupText(match[1] ?? '')
+      if (token) {
+        mentionTokens.add(token)
+      }
+    }
+
+    if (mentionTokens.size === 0) {
+      return []
+    }
+
+    try {
+      const members = await useDataService().getMembers(state.sessionId)
+      const displayNameCounts = new Map<string, number>()
+      members.forEach((member) => {
+        const displayName = member.groupNickname || member.accountName || member.platformId
+        displayNameCounts.set(displayName, (displayNameCounts.get(displayName) ?? 0) + 1)
+      })
+
+      const candidates = members.map((member) => {
+        const displayName = member.groupNickname || member.accountName || member.platformId
+        const insertName =
+          (displayNameCounts.get(displayName) ?? 0) > 1 ? `${displayName}·${member.platformId}` : displayName
+        const aliases = [...member.aliases]
+        const lookupValues = [
+          displayName,
+          member.groupNickname || '',
+          member.accountName || '',
+          member.platformId,
+          insertName,
+          ...aliases,
+        ]
+          .map(normalizeMentionLookupText)
+          .filter(Boolean)
+
+        return {
+          memberId: member.id,
+          platformId: member.platformId,
+          displayName,
+          aliases,
+          mentionText: `@${insertName}`,
+          lookupValues,
+        }
+      })
+
+      const selected: MentionedMemberContext[] = []
+      const selectedIds = new Set<number>()
+      for (const token of mentionTokens) {
+        const candidate = candidates.find(
+          (item) => !selectedIds.has(item.memberId) && item.lookupValues.includes(token)
+        )
+        if (!candidate) continue
+
+        selectedIds.add(candidate.memberId)
+        selected.push({
+          memberId: candidate.memberId,
+          platformId: candidate.platformId,
+          displayName: candidate.displayName,
+          aliases: candidate.aliases,
+          mentionText: candidate.mentionText,
+        })
+      }
+
+      return selected
+    } catch (error) {
+      console.error('[AI] Failed to resolve mentioned members for edited message:', error)
+      return []
+    }
+  }
+
+  async function editMessageAndRegenerate(
+    chatKey: string,
+    messageId: string,
+    newContent: string,
+    options?: { overwriteSubsequent?: boolean }
+  ): Promise<SendMessageResult> {
+    const state = getSessionState(chatKey)
+    const content = newContent.trim()
+    if (!state || !state.currentAIChatId) return { success: false, reason: 'error' }
+    if (!content) return { success: false, reason: 'empty' }
+    if (state.isAIThinking || activeTask.value) {
+      return { success: false, reason: 'busy', activeTask: activeTask.value }
+    }
+
+    const overwriteAll = options?.overwriteSubsequent ?? false
+    const targetBuffer = getOrCreateBuffer(state, state.currentAIChatId, state.selectedAssistantId)
+    const editIndex = targetBuffer.messages.findIndex((message) => message.id === messageId)
+    const originalMessage = targetBuffer.messages[editIndex]
+    if (!originalMessage || originalMessage.role !== 'user' || originalMessage.isStreaming) {
+      return { success: false, reason: 'error' }
+    }
+    if (originalMessage.content.trim() === content) {
+      return { success: false, reason: 'empty' }
+    }
+
+    if (overwriteAll) {
+      return editAndOverwriteAll(chatKey, state, targetBuffer, editIndex, originalMessage, content)
+    }
+    return editCurrentRoundOnly(chatKey, state, targetBuffer, editIndex, originalMessage, content)
+  }
+
+  async function editAndOverwriteAll(
+    chatKey: string,
+    state: AIChatSessionState,
+    targetBuffer: AIChatBuffer,
+    editIndex: number,
+    originalMessage: ChatMessage,
+    content: string
+  ): Promise<SendMessageResult> {
+    try {
+      const hasConfig = await useLLMService().hasConfig()
+      if (!hasConfig) {
+        return { success: false, reason: 'no_config' }
+      }
+      if (state.isAborted) {
+        return { success: false, reason: 'aborted' }
+      }
+      if (state.isAIThinking || activeTask.value) {
+        return { success: false, reason: 'busy', activeTask: activeTask.value }
+      }
+
+      await useAIService().deleteMessagesFrom(state.currentAIChatId!, originalMessage.id)
+      targetBuffer.messages.splice(editIndex, targetBuffer.messages.length - editIndex)
+      return sendMessage(chatKey, content)
+    } catch (error) {
+      console.error('[AI] edit and overwrite failed:', error)
+      return { success: false, reason: 'error' }
+    }
+  }
+
+  async function editCurrentRoundOnly(
+    chatKey: string,
+    state: AIChatSessionState,
+    targetBuffer: AIChatBuffer,
+    editIndex: number,
+    originalMessage: ChatMessage,
+    content: string
+  ): Promise<SendMessageResult> {
+    const thisRequestId = generateId('req')
+    let lastDoneUsage: TokenUsage | undefined
+    let hasStreamError = false
+
+    setActiveTaskMeta(chatKey, content, thisRequestId, state.currentAIChatId)
+    applySessionAssistantSelection(chatKey)
+    void ensureOwnerInfo(chatKey)
+
+    state.isAIThinking = true
+    state.isLoadingSource = true
+    state.currentToolStatus = null
+    state.toolsUsedInCurrentRound = []
+    state.agentStatus = null
+    state.isAborted = false
+    state.currentRequestId = thisRequestId
+    state.currentAgentRequestId = ''
+
+    const oldAiResponse = targetBuffer.messages[editIndex + 1]
+    const hasOldAiResponse = oldAiResponse?.role === 'assistant'
+    const subsequentMessages = hasOldAiResponse
+      ? targetBuffer.messages.slice(editIndex + 2)
+      : targetBuffer.messages.slice(editIndex + 1)
+
+    const aiPlaceholder: ChatMessage = {
+      id: generateId('ai'),
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      isStreaming: true,
+      contentBlocks: [],
+    }
+
+    const currentSkillId = skillStore.activeSkillId
+    const currentSkillName = skillStore.activeSkill?.name
+    if (currentSkillId && currentSkillName) {
+      aiPlaceholder.contentBlocks!.push({ type: 'skill', skillId: currentSkillId, skillName: currentSkillName })
+    }
+
+    const editedUserMessage: ChatMessage = {
+      ...originalMessage,
+      content,
+    }
+    const removeCount = hasOldAiResponse ? 2 : 1
+    targetBuffer.messages.splice(editIndex, removeCount, editedUserMessage, aiPlaceholder)
+    const aiMessageIndex = editIndex + 1
+
+    const restoreOriginal = () => {
+      targetBuffer.messages.splice(editIndex, targetBuffer.messages.length - editIndex, originalMessage)
+      if (hasOldAiResponse) {
+        targetBuffer.messages.splice(editIndex + 1, 0, oldAiResponse)
+      }
+      targetBuffer.messages.push(...subsequentMessages)
+    }
+
+    const {
+      updateAIMessage,
+      appendTextToBlocks,
+      appendThinkToBlocks,
+      appendChartsToBlocks,
+      appendEvidenceToBlocks,
+      appendPlanDraftToBlocks,
+      appendPlanToBlocks,
+      removePlanDraftsFromBlocks,
+      updatePlanBlockStatus,
+      appendErrorToBlocks,
+      addToolBlock,
+      addRenderOnlyToolPendingBlock,
+      updateRenderOnlyToolResult,
+      updateToolBlockStatus,
+    } = createStreamBlockHelpers(targetBuffer, () => aiMessageIndex)
+
+    try {
+      const hasConfig = await useLLMService().hasConfig()
+      if (!hasConfig) {
+        restoreOriginal()
+        clearActiveTask(chatKey, thisRequestId)
+        return { success: false, reason: 'no_config' }
+      }
+
+      const currentAssistantId = targetBuffer.assistantId ?? getDefaultGeneralAssistantId(state.locale)
+      const currentMentionedMembers = await resolveMentionedMembersFromContent(state, content)
+      if (state.isAborted) {
+        restoreOriginal()
+        clearActiveTask(chatKey, thisRequestId)
+        return { success: false, reason: 'aborted' }
+      }
+      if (thisRequestId !== state.currentRequestId) {
+        restoreOriginal()
+        clearActiveTask(chatKey, thisRequestId)
+        return { success: false, reason: 'busy', activeTask: activeTask.value }
+      }
+
+      const autoSkillEnabled = aiGlobalSettings.value.enableAutoSkill ?? true
+      const chartAutoMode = autoSkillEnabled ? (aiGlobalSettings.value.chartAutoMode ?? 'suggest') : 'explicit'
+      const context = {
+        sessionId: state.sessionId,
+        aiChatId: state.currentAIChatId!,
+        historyLeafMessageId: originalMessage.parentId ?? null,
+        timeFilter: state.timeFilter ? { startTs: state.timeFilter.startTs, endTs: state.timeFilter.endTs } : undefined,
+        maxMessagesLimit: aiGlobalSettings.value.maxMessagesPerRequest,
+        ownerInfo: state.ownerInfo
+          ? { platformId: state.ownerInfo.platformId, displayName: state.ownerInfo.displayName }
+          : undefined,
+        mentionedMembers: currentMentionedMembers.length > 0 ? currentMentionedMembers : undefined,
+        preprocessConfig: await buildReadySerializablePreprocessConfig(),
+        searchContextBefore: aiGlobalSettings.value.searchContextBefore,
+        searchContextAfter: aiGlobalSettings.value.searchContextAfter,
+      }
+
+      const { requestId: agentReqId, promise: agentPromise } = useAgentStreamService().runStream(
+        {
+          userMessage: content,
+          sessionId: state.sessionId,
+          aiChatId: state.currentAIChatId!,
+          historyLeafMessageId: originalMessage.parentId ?? null,
+          timeFilter: context.timeFilter,
+          maxMessagesLimit: context.maxMessagesLimit,
+          ownerInfo: context.ownerInfo,
+          mentionedMembers: context.mentionedMembers,
+          preprocessConfig: context.preprocessConfig,
+          chatType: state.chatType,
+          locale: state.locale,
+          assistantId: currentAssistantId,
+          skillId: currentSkillId,
+          enableAutoSkill: !currentSkillId ? autoSkillEnabled : undefined,
+          chartAutoMode: !currentSkillId ? chartAutoMode : undefined,
+          compressionConfig: {
+            enabled: aiGlobalSettings.value.contextCompression?.enabled ?? false,
+            tokenThresholdPercent: aiGlobalSettings.value.contextCompression?.tokenThresholdPercent ?? 75,
+            bufferSizePercent: aiGlobalSettings.value.contextCompression?.bufferSizePercent ?? 20,
+            maxToolResultPercent: aiGlobalSettings.value.contextCompression?.maxToolResultPercent ?? 50,
+          },
+          thinkingLevel: (() => {
+            const cfg = llmStore.defaultAssistant
+            if (!cfg?.configId || !cfg?.modelId) return undefined
+            return promptStore.getThinkingLevel(cfg.configId, cfg.modelId)
+          })(),
+        },
+        (chunk) => {
+          if (state.isAborted || thisRequestId !== state.currentRequestId) return
+          switch (chunk.type) {
+            case 'content':
+              state.currentToolStatus = null
+              appendTextToBlocks(chunk.content || '')
+              break
+            case 'think':
+              if (chunk.content) appendThinkToBlocks(chunk.content, chunk.thinkTag)
+              else if (chunk.thinkDurationMs !== undefined)
+                appendThinkToBlocks('', chunk.thinkTag, chunk.thinkDurationMs)
+              break
+            case 'tool_start':
+              if (chunk.toolName) {
+                const toolParams = chunk.toolParams as Record<string, unknown> | undefined
+                state.currentToolStatus = { name: chunk.toolName, displayName: chunk.toolName, status: 'running' }
+                state.toolsUsedInCurrentRound.push(chunk.toolName)
+                if (isRenderOnlyTool(chunk.toolName)) {
+                  addRenderOnlyToolPendingBlock(chunk.toolName, toolParams, chunk.toolCallId)
+                } else {
+                  addToolBlock(chunk.toolName, toolParams, chunk.toolCallId)
+                }
+              }
+              break
+            case 'tool_result':
+              if (chunk.toolName) {
+                const charts = extractChartPayloads(chunk.toolResult)
+                const renderOnlyError = toRenderOnlyToolErrorBlock(chunk.toolName, chunk.toolResult)
+                if (isRenderOnlyTool(chunk.toolName)) {
+                  updateRenderOnlyToolResult(chunk.toolName, chunk.toolCallId, charts, renderOnlyError)
+                } else {
+                  appendChartsToBlocks(charts)
+                }
+                const evidence = extractEvidencePayload(chunk.toolResult)
+                if (evidence) {
+                  appendEvidenceToBlocks(evidence)
+                }
+                if (renderOnlyError) {
+                  if (!isRenderOnlyTool(chunk.toolName)) {
+                    appendErrorToBlocks(renderOnlyError.error)
+                  }
+                }
+                if (!isRenderOnlyTool(chunk.toolName)) {
+                  const resultText = extractToolResultText(chunk.toolResult)
+                  updateToolBlockStatus(
+                    chunk.toolName,
+                    renderOnlyError !== null || chunk.toolIsError === true ? 'error' : 'done',
+                    {
+                      toolCallId: chunk.toolCallId,
+                      result: truncateToolResultText(resultText),
+                      displayResult: resultText,
+                      isError: chunk.toolIsError,
+                    }
+                  )
+                }
+              }
+              state.currentToolStatus = null
+              state.isLoadingSource = false
+              break
+            case 'plan_delta':
+              if (chunk.planDelta) appendPlanDraftToBlocks(chunk.planDelta)
+              break
+            case 'plan':
+              if (chunk.plan) {
+                appendPlanToBlocks(chunk.plan)
+                updatePlanBlockStatus('executing')
+              }
+              break
+            case 'plan_skipped':
+              removePlanDraftsFromBlocks()
+              break
+            case 'status':
+              if (chunk.status && (!state.agentStatus || chunk.status.updatedAt >= state.agentStatus.updatedAt)) {
+                state.agentStatus = chunk.status
+              }
+              break
+            case 'done':
+              state.currentToolStatus = null
+              if (!hasStreamError) updatePlanBlockStatus('done')
+              if (chunk.usage) lastDoneUsage = { ...chunk.usage }
+              setAgentPhase(state, 'completed', chunk.usage ? { totalUsage: chunk.usage } : undefined)
+              break
+            case 'error': {
+              removePlanDraftsFromBlocks()
+              updatePlanBlockStatus('skipped')
+              hasStreamError = true
+              if (state.currentToolStatus) updateToolBlockStatus(state.currentToolStatus.name, 'error')
+              const blocks = targetBuffer.messages[aiMessageIndex].contentBlocks || []
+              blocks.push({ type: 'error', error: normalizeSerializedError(chunk.error) })
+              updateAIMessage({ contentBlocks: [...blocks], isStreaming: false })
+              setAgentPhase(state, 'error')
+              break
+            }
+          }
+        }
+      )
+
+      state.currentAgentRequestId = agentReqId
+      setActiveTaskMeta(chatKey, content, agentReqId, state.currentAIChatId)
+
+      const result = await agentPromise
+      if (state.isAborted) {
+        restoreOriginal()
+        clearActiveTask(chatKey, agentReqId)
+        return { success: false, reason: 'aborted' }
+      }
+      if (thisRequestId !== state.currentRequestId) {
+        restoreOriginal()
+        clearActiveTask(chatKey, agentReqId)
+        return { success: false, reason: 'busy', activeTask: activeTask.value }
+      }
+
+      if (result.success && result.result) {
+        updateAIMessage({
+          dataSource: { toolsUsed: result.result.toolsUsed, toolRounds: result.result.toolRounds },
+          isStreaming: false,
+        })
+      } else if (!hasStreamError) {
+        const blocks = targetBuffer.messages[aiMessageIndex].contentBlocks || []
+        blocks.push({ type: 'error', error: normalizeSerializedError(result.error) })
+        updateAIMessage({ contentBlocks: [...blocks], isStreaming: false })
+      }
+
+      if (!result.success) {
+        restoreOriginal()
+        return { success: false, reason: 'error' }
+      }
+
+      await useAIService().updateMessageContent(originalMessage.id, content)
+      if (hasOldAiResponse) {
+        await useAIService().deleteAndRelinkMessage(state.currentAIChatId!, oldAiResponse.id)
+      }
+
+      const serializableContentBlocks = toSerializableContentBlocks(targetBuffer.messages[aiMessageIndex].contentBlocks)
+      const savedAiMsg = await useAIService().insertMessageAfter(
+        state.currentAIChatId!,
+        originalMessage.id,
+        'assistant',
+        targetBuffer.messages[aiMessageIndex].content,
+        serializableContentBlocks,
+        lastDoneUsage
+      )
+      targetBuffer.messages[aiMessageIndex] = {
+        ...toRuntimeMessage(savedAiMsg),
+        dataSource: targetBuffer.messages[aiMessageIndex].dataSource,
+        isStreaming: false,
+      }
+      targetBuffer.messages[editIndex] = {
+        ...targetBuffer.messages[editIndex],
+        content,
+      }
+
+      const nextMsgIndex = aiMessageIndex + 1
+      if (nextMsgIndex < targetBuffer.messages.length) {
+        targetBuffer.messages[nextMsgIndex] = {
+          ...targetBuffer.messages[nextMsgIndex],
+          parentId: savedAiMsg.id,
+        }
+      }
+
+      targetBuffer.sessionTokenUsage = toTokenUsage(await useAIService().getAIChatTokenUsage(state.currentAIChatId!))
+      state.sessionTokenUsage = { ...targetBuffer.sessionTokenUsage }
+      return { success: true }
+    } catch (error) {
+      if (state.isAborted) {
+        restoreOriginal()
+        return { success: false, reason: 'aborted' }
+      }
+      console.error('[AI] edit and regenerate failed:', error)
+      const blocks = targetBuffer.messages[aiMessageIndex]?.contentBlocks || []
+      blocks.push({
+        type: 'error',
+        error: {
+          name: error instanceof Error ? error.name : null,
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? (error.stack ?? null) : null,
+        },
+      })
+      if (targetBuffer.messages[aiMessageIndex]) {
+        updateAIMessage({ contentBlocks: [...blocks], isStreaming: false })
+      }
+      return { success: false, reason: 'error' }
+    } finally {
+      state.isAIThinking = false
+      state.isLoadingSource = false
+      state.currentToolStatus = null
+      state.isAborted = false
+      state.currentRequestId = ''
+      state.currentAgentRequestId = ''
+      clearActiveTask(chatKey)
     }
   }
 
@@ -1007,9 +1837,9 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     // 停止时优先定位真实仍在流式写入的会话缓冲，而不是当前页面正在查看的缓冲。
     const runningBufferKey =
       activeTask.value?.chatKey === chatKey
-        ? (activeTask.value.conversationId ?? DRAFT_CONVERSATION_KEY)
+        ? (activeTask.value.aiChatId ?? DRAFT_AI_CHAT_KEY)
         : getDisplayedBufferKey(state)
-    const runningBuffer = state.conversationBuffers[runningBufferKey]
+    const runningBuffer = state.aiChatBuffers[runningBufferKey]
     const lastMessage = runningBuffer ? runningBuffer.messages[runningBuffer.messages.length - 1] : undefined
     if (lastMessage && lastMessage.role === 'assistant' && lastMessage.isStreaming) {
       lastMessage.isStreaming = false
@@ -1018,7 +1848,7 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
 
     if (state.currentAgentRequestId) {
       try {
-        await window.agentApi.abort(state.currentAgentRequestId)
+        await useAgentStreamService().abort(state.currentAgentRequestId)
       } catch (error) {
         console.error('[AI] 中止 Agent 请求失败:', error)
       }
@@ -1043,14 +1873,15 @@ export const useAIChatStore = defineStore('aiChatRuntime', () => {
     getActiveTaskState,
     applySessionAssistantSelection,
     selectAssistantForSession,
-    loadConversation,
-    focusConversation,
-    focusActiveTaskConversation,
+    loadAIChat,
+    focusAIChat,
+    focusActiveTaskAIChat,
     resetToSelectorOnEnter,
-    startNewConversation,
+    startNewAIChat,
     loadMoreSourceMessages,
     updateMaxMessages,
     sendMessage,
+    editMessageAndRegenerate,
     stopGeneration,
     stopActiveTask,
   }

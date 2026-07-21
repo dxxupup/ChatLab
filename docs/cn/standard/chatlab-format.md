@@ -85,7 +85,7 @@ ChatLab 定义了一套标准的聊天记录数据交换格式，用于支持多
 | 字段          | 类型   | 必填 | 说明                                                     |
 | ------------- | ------ | ---- | -------------------------------------------------------- |
 | `name`        | string | ✅   | 群名或对话名                                             |
-| `platform`    | string | ✅   | 平台标识，如 `qq` / `wechat` / `discord` / `whatsapp` 等 |
+| `platform`    | string | ✅   | 平台标识，如 `qq` / `discord` / `whatsapp` / `slack` 等 |
 | `type`        | string | ✅   | 聊天类型：`group`（群聊）/ `private`（私聊）             |
 | `groupId`     | string | -    | 群 ID（仅群聊）                                          |
 | `groupAvatar` | string | -    | 群头像（Data URL 格式）                                  |
@@ -253,7 +253,7 @@ https://example.com/avatars/user123.jpg
   },
   "meta": {
     "name": "技术交流群",
-    "platform": "wechat",
+    "platform": "whatsapp",
     "type": "group",
     "groupId": "38988428513",
     "groupAvatar": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
@@ -380,6 +380,16 @@ JSONL（JSON Lines）格式适用于**超大规模聊天记录**（>100 万条�
 - 行之间用换行符 `\n` 分隔
 
 :::
+
+## 验证转换结果
+
+ChatLab CLI 可以在不导入、不写入数据库的情况下严格验证 JSON/JSONL。它会检查坏行、协议版本、必填字段、秒级时间戳、成员引用、消息类型、消息 ID 和回复关系，并且不会输出消息正文：
+
+```bash
+chatlab validate "/转换后的文件.jsonl" --json
+```
+
+验证通过后，再使用 `chatlab import <file> --dry-run --json` 确认 ChatLab 能够完整识别该文件。
 
 ## 版本历史
 

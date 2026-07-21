@@ -58,7 +58,7 @@ export function useAIChat(
     currentKeywords: toRef(state, 'currentKeywords'),
     isLoadingSource: toRef(state, 'isLoadingSource'),
     isAIThinking: toRef(state, 'isAIThinking'),
-    currentConversationId: toRef(state, 'currentConversationId'),
+    currentAIChatId: toRef(state, 'currentAIChatId'),
     currentToolStatus: toRef(state, 'currentToolStatus'),
     toolsUsedInCurrentRound: toRef(state, 'toolsUsedInCurrentRound'),
     sessionTokenUsage: toRef(state, 'sessionTokenUsage'),
@@ -66,8 +66,10 @@ export function useAIChat(
     selectedAssistantId: toRef(state, 'selectedAssistantId'),
     sendMessage: (content: string, options?: { mentionedMembers?: MentionedMemberContext[] }) =>
       aiChatStore.sendMessage(chatKey, content, options),
-    loadConversation: (conversationId: string) => aiChatStore.loadConversation(chatKey, conversationId),
-    startNewConversation: (welcomeMessage?: string) => aiChatStore.startNewConversation(chatKey, welcomeMessage),
+    editMessageAndRegenerate: (messageId: string, content: string, options?: { overwriteSubsequent?: boolean }) =>
+      aiChatStore.editMessageAndRegenerate(chatKey, messageId, content, options),
+    loadAIChat: (aiChatId: string) => aiChatStore.loadAIChat(chatKey, aiChatId),
+    startNewAIChat: (welcomeMessage?: string) => aiChatStore.startNewAIChat(chatKey, welcomeMessage),
     loadMoreSourceMessages: () => aiChatStore.loadMoreSourceMessages(),
     updateMaxMessages: () => aiChatStore.updateMaxMessages(),
     stopGeneration: () => aiChatStore.stopGeneration(chatKey),

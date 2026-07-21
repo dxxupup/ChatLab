@@ -6,7 +6,7 @@ outline: deep
 
 ChatLab focuses on analyzing exported data - we don't provide data extraction features. You'll need to first use official features or third-party tools from the open-source community to export your chat records, then import them into ChatLab for analysis.
 
-Tips: Welcome to join the [ChatLab Community](../other/community.md) to discuss issues and share feedback.
+Tips: Welcome to join the [ChatLab Community](https://chatlab.fun/other/community) to discuss issues and share feedback.
 
 ## WhatsApp
 
@@ -44,9 +44,14 @@ For Instagram, we currently support the official export feature.
 
 ## iMessage
 
-We plan to support the JSON format exported by https://github.com/ReagentX/imessage-exporter
+For iMessage, **imessage-chatlab** now supports exporting to the ChatLab standard JSON format.
 
-However, the developer currently doesn't have data samples for testing. If you have an urgent need, please provide anonymized data samples and we'll support it as soon as possible.
+- **Project URL**: [https://github.com/gamesme/imessage-chatlab](https://github.com/gamesme/imessage-chatlab)
+- **Supported Platform**: macOS
+- **Installation**: If you have the Rust toolchain installed, run `cargo install imessage-chatlab`. You can also install from source by following the project README.
+- **Export Method**: Refer to the project README. For example, run `imessage-chatlab -c clone -o ~/imessage_chatlab_export` to export local iMessage data.
+- **Format**: The tool exports one ChatLab standard JSON file per conversation. Drag the exported `.json` files into ChatLab.
+- **Tip**: This tool reads the local macOS Messages database. Please read the project documentation carefully and make sure you have legal permission to access and analyze the relevant chat records.
 
 ## LINE
 
@@ -72,6 +77,21 @@ For Telegram, we currently support the official export feature provided by Teleg
   5. Choose the export folder and wait for Telegram to finish processing.
 - **Format**: Import the main JSON file from the export folder (usually `result.json`) into ChatLab.
 - **Tip**: Telegram's official export entry is on desktop. For some accounts, the first export request may be delayed for security reasons and must be completed later on the same device.
+
+## Google Chat
+
+For Google Chat, we currently support the ZIP archive exported by Google Takeout.
+
+- **Export Method**:
+  1. Go to [Google Takeout](https://takeout.google.com/) and sign in with your Google account.
+  2. Click "Deselect all", then check only **Google Chat** to reduce the export size.
+  3. Select **.zip** as the file type (**.tgz is not currently supported**).
+  4. Click "Create export" and wait for Google to process it — you'll receive an email when the download is ready.
+- **Format**: Drag the downloaded `.zip` file directly into ChatLab. ChatLab will scan all conversations inside the archive and show a selection list. Check the conversations you want and import them one by one.
+- **Tips**:
+  - Only ZIP format is supported. If Google Takeout offers .tgz, re-export and select .zip instead.
+  - The first export request may take several hours to process.
+  - Attachments (images, files, etc.) are not imported along with the chat history in the current version.
 
 ## Q&A: Can I analyze chat records from other chat applications?
 

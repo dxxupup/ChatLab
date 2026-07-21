@@ -1,0 +1,31 @@
+/**
+ * 会话模块统一导出
+ * 提供会话索引管理、AI 工具查询、自定义筛选和导出等功能
+ */
+
+export type { ChatSessionItem, SessionIndexStats } from './sessionIndex'
+export type { SessionMessagesResult } from './aiTools'
+export { DEFAULT_SESSION_GAP_THRESHOLD } from '@openchatlab/core'
+
+// 会话索引管理
+export {
+  generateSessions,
+  generateIncrementalSessions,
+  clearSessions,
+  hasSessionIndex,
+  getSessionStats,
+  getAllIndexStats,
+  updateSessionGapThreshold,
+  getSessions,
+  getSessionsByTimeRange,
+  getRecentChatSessions,
+  getSegmentSummariesInWorker,
+  saveSessionSummary,
+  getSessionSummary,
+} from './sessionIndex'
+
+// AI 工具专用查询
+export { getSegmentMessages } from './aiTools'
+
+// 导出功能
+export { exportFilterResultToFile } from './export'

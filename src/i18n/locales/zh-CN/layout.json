@@ -1,6 +1,9 @@
 {
   "brand": "ChatLab",
-  "newAnalysis": "分析新聊天",
+  "newAnalysis": "分析新对话",
+  "contacts": "联系人",
+  "relationships": "关系",
+  "insight": "足迹",
   "tools": "实用工具",
   "chatHistory": "聊天对话",
   "manage": "管理",
@@ -11,6 +14,7 @@
     "rename": "重命名",
     "pin": "置顶",
     "unpin": "取消置顶",
+    "copyId": "复制 ID",
     "delete": "删除"
   },
   "renameModal": {
@@ -20,6 +24,15 @@
   "deleteModal": {
     "title": "确认删除",
     "message": "确定要删除聊天记录 \"{name}\" 吗？此操作无法撤销。"
+  },
+  "updateNotice": {
+    "tag": "New",
+    "title": "发现新版本",
+    "message": "最新版本是 v{version}。",
+    "desktopHint": "点击立即更新后，ChatLab 会开始检查并下载桌面端更新。",
+    "cliHint": "请在终端运行以下命令更新 CLI，更新后重启服务。",
+    "updateNow": "立即更新",
+    "later": "稍后"
   },
   "filter": {
     "all": "全部",
@@ -32,15 +45,11 @@
     "messageCount": "消息数量"
   },
   "tooltip": {
-    "expand": "展开侧边栏",
-    "collapse": "收起侧边栏",
-    "hint": "右键可删除或重命名聊天记录",
     "search": "搜索聊天记录",
     "sort": "排序"
   },
   "sessionInfo": "{count} 条消息",
   "footer": {
-    "helpAndFeedback": "反馈和帮助",
     "settings": "设置"
   }
 }

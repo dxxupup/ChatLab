@@ -6,6 +6,8 @@ import type { MemberActivity, HourlyActivity, DailyActivity } from '@/types/anal
 import { useI18n } from 'vue-i18n'
 import { formatLocalizedDate } from '@/utils'
 import { useTimeSelect } from './useTimeSelect'
+import { useDataService } from '@/services'
+import { abortAnalyticsRequests } from '@/services/utils/http'
 
 interface UseSessionAnalysisPageBaseOptions {
   route: RouteLocationNormalizedLoaded
@@ -33,6 +35,7 @@ export function useSessionAnalysisPageBase(options: UseSessionAnalysisPageBaseOp
   const hourlyActivity = ref<HourlyActivity[]>([])
   const dailyActivity = ref<DailyActivity[]>([])
   const messageTypes = ref<Array<{ type: MessageType; count: number }>>([])
+  let analysisLoadVersion = 0
 
   function resolveActiveTabFromRoute(): string {
     const routeTab = route.query.tab as string | undefined
@@ -42,13 +45,12 @@ export function useSessionAnalysisPageBase(options: UseSessionAnalysisPageBaseOp
 
   const activeTab = ref(resolveActiveTabFromRoute())
 
-  const { timeRangeValue, fullTimeRange, availableYears, timeFilter, selectedYearForOverview, initialTimeState } =
-    useTimeSelect(route, router, {
-      activeTab,
-      isInitialLoad,
-      currentSessionId,
-      onTimeRangeChange: () => loadAnalysisData(),
-    })
+  const { timeRangeValue, fullTimeRange, availableYears, timeFilter, initialTimeState } = useTimeSelect(route, router, {
+    activeTab,
+    isInitialLoad,
+    currentSessionId,
+    onTimeRangeChange: () => loadAnalysisData(),
+  })
 
   function syncSession() {
     const id = route.params.id as string
@@ -64,7 +66,7 @@ export function useSessionAnalysisPageBase(options: UseSessionAnalysisPageBaseOp
     if (!currentSessionId.value) return
 
     try {
-      const sessionData = await window.chatApi.getSession(currentSessionId.value)
+      const sessionData = await useDataService().getSession(currentSessionId.value)
       session.value = sessionData
     } catch (error) {
       console.error('加载基础数据失败:', error)
@@ -72,28 +74,37 @@ export function useSessionAnalysisPageBase(options: UseSessionAnalysisPageBaseOp
   }
 
   async function loadAnalysisData() {
-    if (!currentSessionId.value) return
+    const sessionId = currentSessionId.value
+    if (!sessionId) return
 
+    const loadVersion = ++analysisLoadVersion
     isLoading.value = true
 
     try {
       const filter = timeFilter.value
 
+      const adapter = useDataService()
       const [members, hourly, daily, types] = await Promise.all([
-        window.chatApi.getMemberActivity(currentSessionId.value, filter),
-        window.chatApi.getHourlyActivity(currentSessionId.value, filter),
-        window.chatApi.getDailyActivity(currentSessionId.value, filter),
-        window.chatApi.getMessageTypeDistribution(currentSessionId.value, filter),
+        adapter.getMemberActivity(sessionId, filter),
+        adapter.getHourlyActivity(sessionId, filter),
+        adapter.getDailyActivity(sessionId, filter),
+        adapter.getMessageTypeDistribution(sessionId, filter),
       ])
 
+      // Browser Runtime 查询无法被 HTTP epoch 取消，旧批次完成时不得覆盖最新筛选结果。
+      if (loadVersion !== analysisLoadVersion) return
       memberActivity.value = members
       hourlyActivity.value = hourly
       dailyActivity.value = daily
       messageTypes.value = types
     } catch (error) {
-      console.error('加载分析数据失败:', error)
+      if (loadVersion === analysisLoadVersion) {
+        console.error('加载分析数据失败:', error)
+      }
     } finally {
-      isLoading.value = false
+      if (loadVersion === analysisLoadVersion) {
+        isLoading.value = false
+      }
     }
   }
 
@@ -123,6 +134,9 @@ export function useSessionAnalysisPageBase(options: UseSessionAnalysisPageBaseOp
   watch(
     currentSessionId,
     () => {
+      analysisLoadVersion++
+      // 切换会话时，上一会话的分析请求立即作废（切换后子 Tab 会按新 key 重挂并重新取数）。
+      abortAnalyticsRequests()
       loadData()
     },
     { immediate: true }
@@ -145,7 +159,6 @@ export function useSessionAnalysisPageBase(options: UseSessionAnalysisPageBaseOp
     fullTimeRange,
     availableYears,
     timeFilter,
-    selectedYearForOverview,
     initialTimeState,
     syncSession,
     loadData,

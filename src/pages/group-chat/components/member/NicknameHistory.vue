@@ -2,6 +2,7 @@
 import { ref, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { MemberWithStats, MemberNameHistory } from '@/types/analysis'
+import { useDataService } from '@/services'
 import { SectionCard, EmptyState, LoadingState } from '@/components/UI'
 import { formatPeriod } from '@/utils'
 
@@ -34,7 +35,7 @@ function getDisplayName(member: MemberWithStats): string {
 async function loadMembers() {
   if (!props.sessionId) return
   try {
-    members.value = await window.chatApi.getMembers(props.sessionId)
+    members.value = await useDataService().getMembers(props.sessionId)
   } catch (error) {
     console.error('加载成员列表失败:', error)
   }
@@ -48,7 +49,7 @@ async function loadMembersWithNicknameChanges() {
 
   try {
     const historyPromises = members.value.map((member) =>
-      window.chatApi.getMemberNameHistory(props.sessionId, member.id)
+      useDataService().getMemberNameHistory(props.sessionId, member.id)
     )
 
     const allHistories = await Promise.all(historyPromises)

@@ -6,8 +6,18 @@ import { useToast } from '@/composables/useToast'
 import { usePromptStore } from '@/stores/prompt'
 import { useLayoutStore } from '@/stores/layout'
 import { useLLMStore } from '@/stores/llm'
-import { exportConversation, type ExportFormat } from '@/utils/conversationExport'
+import {
+  exportConversation,
+  getExportableConversationMessages,
+  hasExportableConversationMessages,
+  type ConversationExportSourceMessage,
+  type ExportFormat,
+} from '@/utils/conversationExport'
 import type { AgentRuntimeStatus } from '@electron/shared/types'
+import { useAIService } from '@/services'
+import { getSupportedThinkingLevels, type ThinkingLevel } from '@openchatlab/core'
+import { useCacheService } from '@/services/cache/service'
+import type { ChatMessage } from '@/composables/useAIChat'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -15,19 +25,20 @@ const layoutStore = useLayoutStore()
 
 // Props
 const props = defineProps<{
-  sessionTokenUsage: { totalTokens: number }
+  sessionTokenUsage: { totalTokens: number; cacheReadTokens: number; cacheWriteTokens: number }
   agentStatus?: AgentRuntimeStatus | null
-  currentConversationId?: string | null
+  currentAIChatId?: string | null
+  currentMessages?: ChatMessage[]
+  fallbackTitle?: string
+  estimatedContextTokens?: number
 }>()
 
 // Store
 const promptStore = usePromptStore()
 const llmStore = useLLMStore()
 const { aiGlobalSettings } = storeToRefs(promptStore)
-const { configs, activeConfig, isLoading: isLoadingLLM } = storeToRefs(llmStore)
+const { defaultAssistantConfig, isLoading: isLoadingLLM } = storeToRefs(llmStore)
 
-// 下拉菜单状态
-const isModelPopoverOpen = ref(false)
 const isOpeningLog = ref(false)
 
 const agentPhaseText = computed(() => {
@@ -44,6 +55,8 @@ const agentPhaseClass = computed(() => {
   if (!props.agentStatus) return 'text-gray-500 bg-gray-100 dark:bg-gray-800 dark:text-gray-300'
 
   switch (props.agentStatus.phase) {
+    case 'compressing':
+      return 'text-purple-600 bg-purple-50 dark:bg-purple-900/30 dark:text-purple-300'
     case 'tool_running':
       return 'text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 dark:text-indigo-300'
     case 'thinking':
@@ -76,6 +89,36 @@ function formatCompactNumber(value: number): string {
 const totalTokenUsageText = computed(() => formatNumber(props.sessionTokenUsage.totalTokens))
 const totalTokenUsageCompactText = computed(() => formatCompactNumber(props.sessionTokenUsage.totalTokens))
 
+const hasCacheData = computed(() => props.sessionTokenUsage.cacheReadTokens > 0)
+const cacheReadText = computed(() => formatCompactNumber(props.sessionTokenUsage.cacheReadTokens))
+
+const contextTokens = computed(() => {
+  if (props.agentStatus?.contextTokens) return props.agentStatus.contextTokens
+  if (props.estimatedContextTokens && props.estimatedContextTokens > 0) return props.estimatedContextTokens
+  return 0
+})
+
+const modelContextWindow = computed(() => {
+  const defaultConfig = defaultAssistantConfig.value
+  const modelId = llmStore.defaultAssistant?.modelId || defaultConfig?.model
+  if (!defaultConfig || !modelId) return 128000
+
+  const model = llmStore.getModelById(defaultConfig.provider, modelId) || llmStore.findModelAcrossProviders(modelId)
+  return model?.contextWindow ?? 128000
+})
+
+const contextUsagePercent = computed(() => {
+  if (contextTokens.value <= 0 || modelContextWindow.value <= 0) return 0
+  return Math.min(100, Math.round((contextTokens.value / modelContextWindow.value) * 100))
+})
+
+const contextBarColor = computed(() => {
+  const pct = contextUsagePercent.value
+  if (pct >= 80) return 'bg-red-500'
+  if (pct >= 60) return 'bg-amber-500'
+  return 'bg-emerald-500'
+})
+
 const agentCompactTitle = computed(() => {
   if (!props.agentStatus) return ''
   return [
@@ -85,56 +128,66 @@ const agentCompactTitle = computed(() => {
   ].join('\n')
 })
 
-function openChatSettings() {
-  layoutStore.openSettings('ai', 'chat')
-}
-
-// 切换 AI 模型配置
-async function switchModelConfig(configId: string) {
-  const success = await llmStore.setActiveConfig(configId)
-  if (success) {
-    isModelPopoverOpen.value = false
-  } else {
-    toast.fail(t('ai.chat.statusBar.model.switchFailed'))
-  }
-}
-
 function openModelSettings() {
-  isModelPopoverOpen.value = false
-  layoutStore.openSettings('ai', 'model')
+  layoutStore.openSettings('ai', 'defaultModel')
 }
 
 // 导出当前对话
 const isExporting = ref(false)
+const visibleExportMessages = computed(() => getExportableConversationMessages(props.currentMessages ?? []))
+const canExportConversation = computed(() => {
+  return Boolean(props.currentAIChatId) || hasExportableConversationMessages(props.currentMessages ?? [])
+})
+
+function getExportLabels() {
+  return {
+    createdAt: t('ai.chat.conversation.export.createdAt'),
+    user: t('ai.chat.conversation.export.user'),
+    assistant: t('ai.chat.conversation.export.assistant'),
+  }
+}
+
+function toExportSourceMessages(messages: ConversationExportSourceMessage[]): ConversationExportSourceMessage[] {
+  return messages.map((message) => ({
+    ...message,
+    timestamp: message.timestamp * 1000,
+  }))
+}
 
 async function handleExportConversation() {
-  if (isExporting.value || !props.currentConversationId) return
+  if (isExporting.value || !canExportConversation.value) return
 
   isExporting.value = true
   try {
-    const [conv, messages] = await Promise.all([
-      window.aiApi.getConversation(props.currentConversationId),
-      window.aiApi.getMessages(props.currentConversationId),
-    ])
+    const format = (aiGlobalSettings.value.exportFormat || 'markdown') as ExportFormat
+    const labels = getExportLabels()
+    let title = props.fallbackTitle || t('ai.chat.conversation.newChat')
+    let createdAt = visibleExportMessages.value[0]?.timestamp ?? Date.now()
+    let messages = visibleExportMessages.value
 
-    if (!conv || messages.length === 0) {
+    if (props.currentAIChatId) {
+      const [conv, persistedMessages] = await Promise.all([
+        useAIService().getAIChat(props.currentAIChatId),
+        useAIService().getMessages(props.currentAIChatId),
+      ])
+
+      if (conv) {
+        title = conv.title || title
+        createdAt = conv.createdAt * 1000
+      }
+
+      const persistedExportMessages = getExportableConversationMessages(toExportSourceMessages(persistedMessages))
+      if (persistedExportMessages.length > 0) {
+        messages = persistedExportMessages
+      }
+    }
+
+    if (messages.length === 0) {
       toast.warn(t('ai.chat.conversation.export.noMessages'))
       return
     }
 
-    const format = (aiGlobalSettings.value.exportFormat || 'markdown') as ExportFormat
-    const title = conv.title || t('ai.chat.conversation.newChat')
-    const labels = {
-      createdAt: t('ai.chat.conversation.export.createdAt'),
-      user: t('ai.chat.conversation.export.user'),
-      assistant: t('ai.chat.conversation.export.assistant'),
-    }
-    const messagesWithMs = messages.map((msg) => ({
-      ...msg,
-      timestamp: msg.timestamp * 1000,
-    }))
-
-    const result = await exportConversation(title, messagesWithMs, conv.createdAt * 1000, format, labels)
+    const result = await exportConversation(title, messages, createdAt, format, labels)
 
     if (result.success && result.filePath) {
       const filename = result.filePath.split('/').pop() || result.filePath
@@ -147,7 +200,7 @@ async function handleExportConversation() {
           {
             label: t('common.openFolder'),
             onClick: () => {
-              window.cacheApi.showInFolder(exportedFilePath)
+              useCacheService().showInFolder(exportedFilePath)
             },
           },
         ],
@@ -168,7 +221,7 @@ async function openAiLogFile() {
   if (isOpeningLog.value) return
   isOpeningLog.value = true
   try {
-    const result = await window.aiApi.showAiLogFile()
+    const result = await useAIService().showAiLogFile()
     if (!result?.success) {
       toast.fail(t('ai.chat.statusBar.log.openFailed'), {
         description: result?.error || t('ai.chat.statusBar.log.openFailedDesc'),
@@ -181,6 +234,40 @@ async function openAiLogFile() {
     isOpeningLog.value = false
   }
 }
+
+// ── Thinking level selector ───────────────────────────────────────────────────
+
+const isThinkingPopoverOpen = ref(false)
+
+/** The current model's supported thinking levels (empty = not a reasoning model). */
+const supportedThinkingLevels = computed<ThinkingLevel[]>(() => {
+  const cfg = defaultAssistantConfig.value
+  const modelId = llmStore.defaultAssistant?.modelId || cfg?.model
+  if (!cfg?.provider || !modelId) return []
+  return getSupportedThinkingLevels(cfg.provider, modelId)
+})
+
+/** Whether to show the selector at all. */
+const showThinkingSelector = computed(() => supportedThinkingLevels.value.length > 0)
+
+/** The currently remembered level for this model slot (undefined → 'default'). */
+const currentThinkingLevel = computed<ThinkingLevel>(() => {
+  const cfg = llmStore.defaultAssistant
+  if (!cfg?.configId || !cfg?.modelId) return 'default'
+  return promptStore.getThinkingLevel(cfg.configId, cfg.modelId) ?? 'default'
+})
+
+function selectThinkingLevel(level: ThinkingLevel) {
+  const cfg = llmStore.defaultAssistant
+  if (!cfg?.configId || !cfg?.modelId) return
+  promptStore.setThinkingLevel(cfg.configId, cfg.modelId, level)
+  isThinkingPopoverOpen.value = false
+}
+
+/** Label shown on the trigger button. */
+const thinkingLevelLabel = computed(() => {
+  return t(`ai.chat.statusBar.thinking.level.${currentThinkingLevel.value}`)
+})
 </script>
 
 <template>
@@ -188,65 +275,58 @@ async function openAiLogFile() {
   <div class="relative z-20 flex items-center justify-between">
     <!-- 左侧：模型切换器 -->
     <div class="flex items-center gap-1">
-      <UPopover v-model:open="isModelPopoverOpen" :ui="{ content: 'z-[80] p-0' }">
+      <button
+        class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+        :disabled="isLoadingLLM"
+        @click="openModelSettings"
+      >
+        <UIcon name="i-heroicons-cpu-chip" class="h-3.5 w-3.5" />
+        <span class="max-w-[160px] truncate">
+          {{
+            llmStore.defaultAssistant?.modelId
+              ? llmStore.getModelById(defaultAssistantConfig?.provider ?? '', llmStore.defaultAssistant.modelId)
+                  ?.name || llmStore.defaultAssistant.modelId
+              : t('ai.chat.statusBar.model.notConfigured')
+          }}
+        </span>
+      </button>
+
+      <!-- 思考强度选择器（仅对 reasoning 模型显示） -->
+      <UPopover v-if="showThinkingSelector" v-model:open="isThinkingPopoverOpen" :ui="{ content: 'z-[80] p-0' }">
         <button
-          class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          :disabled="isLoadingLLM"
+          class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+          :class="
+            currentThinkingLevel === 'default' || currentThinkingLevel === 'off'
+              ? 'text-gray-400 dark:text-gray-500'
+              : 'text-primary-500 dark:text-primary-400'
+          "
+          :title="t('ai.chat.statusBar.thinking.tooltip')"
         >
-          <UIcon name="i-heroicons-cpu-chip" class="h-3.5 w-3.5" />
-          <span class="max-w-[120px] truncate">
-            {{ activeConfig?.name || t('ai.chat.statusBar.model.notConfigured') }}
-          </span>
-          <UIcon name="i-heroicons-chevron-down" class="h-3 w-3" />
+          <UIcon name="i-heroicons-light-bulb" class="h-3.5 w-3.5" />
+          <span>{{ thinkingLevelLabel }}</span>
         </button>
         <template #content>
-          <div class="w-48 py-1">
+          <div class="w-40 py-1">
             <div class="px-3 py-1.5 text-xs font-medium text-gray-400 dark:text-gray-500">
-              {{ t('ai.chat.statusBar.model.title') }}
+              {{ t('ai.chat.statusBar.thinking.title') }}
             </div>
-
-            <!-- 配置列表 -->
-            <template v-if="configs.length > 0">
-              <button
-                v-for="config in configs"
-                :key="config.id"
-                class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
-                :class="[
-                  config.id === activeConfig?.id
-                    ? 'text-pink-600 dark:text-pink-400'
-                    : 'text-gray-700 dark:text-gray-300',
-                ]"
-                @click="switchModelConfig(config.id)"
-              >
-                <UIcon
-                  :name="config.id === activeConfig?.id ? 'i-heroicons-check-circle-solid' : 'i-heroicons-cpu-chip'"
-                  class="h-4 w-4 shrink-0"
-                  :class="[config.id === activeConfig?.id ? 'text-pink-500' : 'text-gray-400']"
-                />
-                <div class="flex flex-col truncate">
-                  <span class="truncate">{{ config.name }}</span>
-                  <span v-if="config.model" class="truncate text-[10px] text-gray-400 dark:text-gray-500">
-                    {{ llmStore.getModelById(config.provider, config.model)?.name || config.model }}
-                  </span>
-                </div>
-              </button>
-            </template>
-
-            <!-- 空状态 -->
-            <div v-else class="px-3 py-2 text-sm text-gray-400 dark:text-gray-500">
-              {{ t('ai.chat.statusBar.model.empty') }}
-            </div>
-
-            <!-- 分隔线 -->
-            <div class="my-1 border-t border-gray-200 dark:border-gray-700" />
-
-            <!-- 管理配置按钮 -->
             <button
-              class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-              @click="openModelSettings"
+              v-for="level in supportedThinkingLevels"
+              :key="level"
+              class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+              :class="
+                currentThinkingLevel === level
+                  ? 'text-primary-600 dark:text-primary-400'
+                  : 'text-gray-700 dark:text-gray-300'
+              "
+              @click="selectThinkingLevel(level)"
             >
-              <UIcon name="i-heroicons-cog-6-tooth" class="h-4 w-4 shrink-0" />
-              <span>{{ t('ai.chat.statusBar.model.manage') }}</span>
+              <UIcon
+                :name="currentThinkingLevel === level ? 'i-heroicons-check-circle-solid' : 'i-heroicons-light-bulb'"
+                class="h-4 w-4 shrink-0"
+                :class="currentThinkingLevel === level ? 'text-primary-500' : 'text-gray-400'"
+              />
+              <span>{{ t(`ai.chat.statusBar.thinking.level.${level}`) }}</span>
             </button>
           </div>
         </template>
@@ -266,29 +346,37 @@ async function openAiLogFile() {
         </span>
       </div>
 
-      <div
-        class="hidden shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-gray-400 dark:text-gray-500 md:flex"
-        :title="t('ai.chat.statusBar.tokenUsageTitle')"
-      >
-        <UIcon name="i-heroicons-circle-stack" class="h-3.5 w-3.5" />
-        <span>{{ totalTokenUsageCompactText }}</span>
-      </div>
+      <!-- Context 进度条 -->
+      <UTooltip v-if="contextTokens > 0" :ui="{ content: 'h-auto py-1.5' }">
+        <div
+          class="hidden shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-gray-400 dark:text-gray-500 md:flex"
+        >
+          <div class="h-1.5 w-10 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+            <div
+              class="h-full rounded-full transition-all duration-300"
+              :class="contextBarColor"
+              :style="{ width: `${contextUsagePercent}%` }"
+            />
+          </div>
+          <span class="text-[10px]">{{ contextUsagePercent }}%</span>
+        </div>
+        <template #content>
+          <div class="space-y-0.5 whitespace-nowrap text-xs">
+            <div>
+              {{ t('ai.chat.statusBar.agent.contextTokens') }}: {{ formatCompactNumber(contextTokens) }} /
+              {{ formatCompactNumber(modelContextWindow) }}
+            </div>
+            <div>{{ t('ai.chat.statusBar.tokenUsageTitle') }}: {{ totalTokenUsageCompactText }}</div>
+            <div v-if="hasCacheData">{{ t('ai.chat.statusBar.cacheHit') }}: {{ cacheReadText }}</div>
+          </div>
+        </template>
+      </UTooltip>
 
-      <!-- 消息条数限制（点击跳转设置） -->
-      <button
-        class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-        :title="t('ai.chat.statusBar.messageLimit.title')"
-        @click="openChatSettings"
-      >
-        <UIcon name="i-heroicons-adjustments-horizontal" class="h-3.5 w-3.5" />
-        <span class="hidden lg:inline">{{ t('ai.chat.statusBar.messageLimit.label') }}</span>
-        <span>{{ aiGlobalSettings.maxMessagesPerRequest }}</span>
-      </button>
       <!-- 导出按钮 -->
       <button
         class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-gray-800 dark:hover:text-gray-300"
         :title="t('ai.chat.statusBar.export.title')"
-        :disabled="isExporting || !currentConversationId"
+        :disabled="isExporting || !canExportConversation"
         @click="handleExportConversation"
       >
         <UIcon name="i-heroicons-arrow-down-tray" class="h-3.5 w-3.5" />

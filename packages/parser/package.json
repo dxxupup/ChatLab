@@ -1,0 +1,17 @@
+{
+  "name": "@openchatlab/parser",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ChatLab 多格式聊天记录解析器（14+ 格式）",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@openchatlab/parser-native": "workspace:*",
+    "@openchatlab/shared-types": "workspace:*",
+    "stream-json": "^1.9.1"
+  },
+  "devDependencies": {
+    "@types/stream-json": "^1.7.8"
+  }
+}

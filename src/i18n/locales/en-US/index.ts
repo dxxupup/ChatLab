@@ -11,6 +11,10 @@ import members from './members.json'
 import records from './records.json'
 import views from './views.json'
 import wordFilter from './wordFilter.json'
+import contacts from './contacts.json'
+import relationships from './relationships.json'
+import insight from './insight.json'
+import browser from './browser.json'
 
 export default {
   common,
@@ -26,4 +30,8 @@ export default {
   records,
   views,
   wordFilter,
+  contacts,
+  relationships,
+  insight,
+  browser,
 }

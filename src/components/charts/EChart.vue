@@ -3,7 +3,7 @@
  * ECharts 基础封装组件
  * 提供自动响应式、主题适配、加载状态等通用功能
  */
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, BarChart, LineChart, HeatmapChart } from 'echarts/charts'
@@ -13,6 +13,7 @@ import {
   LegendComponent,
   GridComponent,
   VisualMapComponent,
+  DataZoomComponent,
 } from 'echarts/components'
 import type { EChartsOption } from 'echarts'
 
@@ -28,6 +29,7 @@ echarts.use([
   LegendComponent,
   GridComponent,
   VisualMapComponent,
+  DataZoomComponent,
 ])
 
 interface Props {
@@ -45,6 +47,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const chartRef = ref<HTMLDivElement>()
 let chartInstance: echarts.ECharts | null = null
+let resizeObserver: ResizeObserver | null = null
 
 // 计算高度样式
 const heightStyle = computed(() => {
@@ -129,8 +132,15 @@ watch(
 let observer: MutationObserver | null = null
 
 onMounted(() => {
-  initChart()
+  // Defer init to next tick so the container has completed layout before ECharts reads its width
+  nextTick(() => {
+    initChart()
+  })
   window.addEventListener('resize', handleResize)
+  if (chartRef.value) {
+    resizeObserver = new ResizeObserver(() => handleResize())
+    resizeObserver.observe(chartRef.value)
+  }
 
   // 监听 HTML 元素的 class 变化（用于检测暗色模式切换）
   observer = new MutationObserver(() => {
@@ -146,6 +156,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+  resizeObserver?.disconnect()
   observer?.disconnect()
   chartInstance?.dispose()
   chartInstance = null

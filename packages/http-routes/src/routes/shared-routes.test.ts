@@ -1,0 +1,644 @@
+/**
+ * Smoke tests for registerSharedRoutes — verifies all route groups
+ * are registered and respond correctly with mock context.
+ *
+ * Uses a single Fastify instance to avoid repeated NLP dict init overhead.
+ */
+
+import { describe, it, before, after } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import Database from 'better-sqlite3'
+import Fastify, { type FastifyInstance } from 'fastify'
+import type { DatabaseAdapter, PathProvider, PreparedStatement, RunResult } from '@openchatlab/core'
+import { PreferencesManager, type DatabaseManager, type SessionRuntimeAdapter } from '@openchatlab/node-runtime'
+import type { HttpRouteContext } from '../context'
+import { registerSharedRoutes } from '../register'
+import { registerRestSessionRoutes } from './rest/sessions'
+import { createDatabaseRestSessionProvider } from './rest/session-provider'
+import { registerAutomationRoutes } from './web/automation'
+import { registerSessionRoutes } from './web/sessions'
+
+const nativeBinding = path.resolve('apps/cli/native/better_sqlite3.node')
+const testSystemDir = path.join(process.env.CHATLAB_TEST_TMPDIR ?? os.tmpdir(), `chatlab-shared-routes-${process.pid}`)
+
+class SqlitePreparedStatement implements PreparedStatement {
+  readonly?: boolean
+
+  constructor(private stmt: Database.Statement) {
+    this.readonly = stmt.readonly
+  }
+
+  get(...params: unknown[]): Record<string, unknown> | undefined {
+    return this.stmt.get(...params) as Record<string, unknown> | undefined
+  }
+
+  all(...params: unknown[]): Record<string, unknown>[] {
+    return this.stmt.all(...params) as Record<string, unknown>[]
+  }
+
+  run(...params: unknown[]): RunResult {
+    const result = this.stmt.run(...params)
+    return { changes: result.changes, lastInsertRowid: result.lastInsertRowid }
+  }
+}
+
+class TestSqliteDb implements DatabaseAdapter {
+  constructor(private db: Database.Database) {}
+
+  exec(sql: string): void {
+    this.db.exec(sql)
+  }
+
+  prepare(sql: string): PreparedStatement {
+    return new SqlitePreparedStatement(this.db.prepare(sql))
+  }
+
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)()
+  }
+
+  pragma(pragma: string): unknown {
+    return this.db.pragma(pragma)
+  }
+
+  close(): void {
+    this.db.close()
+  }
+}
+
+function createSessionDb(): TestSqliteDb {
+  const db = new TestSqliteDb(new Database(':memory:', { nativeBinding }))
+  db.exec(`
+    CREATE TABLE meta (
+      name TEXT,
+      platform TEXT,
+      type TEXT,
+      imported_at INTEGER,
+      group_id TEXT,
+      group_avatar TEXT,
+      owner_id TEXT,
+      session_gap_threshold INTEGER
+    );
+    CREATE TABLE member (
+      id INTEGER PRIMARY KEY,
+      platform_id TEXT,
+      account_name TEXT,
+      group_nickname TEXT,
+      avatar TEXT
+    );
+    CREATE TABLE message (
+      id INTEGER PRIMARY KEY,
+      sender_id INTEGER,
+      ts INTEGER,
+      type INTEGER,
+      content TEXT,
+      platform_message_id TEXT
+    );
+    CREATE TABLE member_name_history (
+      id INTEGER PRIMARY KEY,
+      member_id INTEGER,
+      name TEXT,
+      start_time INTEGER,
+      end_time INTEGER
+    );
+    CREATE TABLE segment (
+      id INTEGER PRIMARY KEY,
+      start_ts INTEGER,
+      end_ts INTEGER,
+      message_count INTEGER,
+      is_manual INTEGER DEFAULT 0,
+      summary TEXT
+    );
+
+    INSERT INTO meta (
+      name, platform, type, imported_at, group_id, group_avatar, owner_id, session_gap_threshold
+    ) VALUES ('Route Chat', 'wechat', 'group', 1700000000, 'group-1', NULL, 'alice', NULL);
+    INSERT INTO member (id, platform_id, account_name, group_nickname, avatar) VALUES
+      (1, 'alice', 'Alice', NULL, NULL),
+      (2, 'bob', 'Bob', NULL, NULL);
+    INSERT INTO message (id, sender_id, ts, type, content, platform_message_id) VALUES
+      (1, 1, 100, 0, 'alpha first', 'm-1'),
+      (2, 2, 200, 0, 'alpha from bob', 'm-2'),
+      (3, 1, 300, 0, 'alpha later', 'm-3');
+    INSERT INTO member_name_history (id, member_id, name, start_time, end_time) VALUES
+      (1, 1, 'Alice', 100, 300),
+      (2, 2, 'Bob', 200, 200);
+  `)
+  return db
+}
+
+function createTestContext(dbs: Map<string, DatabaseAdapter> = new Map()): HttpRouteContext {
+  const pathProvider: PathProvider = {
+    getSystemDir: () => testSystemDir,
+    getUserDataDir: () => path.join(testSystemDir, 'data'),
+    getDatabaseDir: () => path.join(testSystemDir, 'databases'),
+    getVectorDir: () => path.join(testSystemDir, 'vector'),
+    getAiDataDir: () => path.join(testSystemDir, 'ai'),
+    getSettingsDir: () => path.join(testSystemDir, 'settings'),
+    getCacheDir: () => path.join(testSystemDir, 'cache'),
+    getTempDir: () => path.join(testSystemDir, 'temp'),
+    getLogsDir: () => path.join(testSystemDir, 'logs'),
+    getDownloadsDir: () => path.join(testSystemDir, 'downloads'),
+  }
+
+  const dbManager = {
+    listSessionIds: () => Array.from(dbs.keys()),
+    open: (sessionId: string) => dbs.get(sessionId) ?? null,
+    openWritable: (sessionId: string) => dbs.get(sessionId) ?? null,
+    close: () => {},
+    closeAll: () => {},
+    getDbPath: (id: string) => `/tmp/${id}.db`,
+  } as unknown as DatabaseManager
+
+  const sessionAdapter: SessionRuntimeAdapter = {
+    listSessionIds: () => Array.from(dbs.keys()),
+    openReadonly: (sessionId) => dbs.get(sessionId) ?? null,
+    openWritable: (sessionId) => dbs.get(sessionId) ?? null,
+    closeSession: () => {},
+    getDbPath: (id: string) => `/tmp/${id}.db`,
+    deleteSessionFile: (sessionId) => dbs.delete(sessionId),
+    ensureReadonly: (sessionId) => {
+      const db = dbs.get(sessionId)
+      if (!db) throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+      return db
+    },
+    ensureWritable: (sessionId) => {
+      const db = dbs.get(sessionId)
+      if (!db) throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+      return db
+    },
+  }
+
+  return { dbManager, sessionAdapter, pathProvider, getVersion: () => '0.0.0-test' }
+}
+
+describe('registerSharedRoutes smoke tests', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    app = Fastify()
+    registerSharedRoutes(app, createTestContext())
+    await app.ready()
+  })
+
+  after(async () => {
+    try {
+      await app.close()
+    } finally {
+      fs.rmSync(testSystemDir, { recursive: true, force: true })
+    }
+  })
+
+  it('GET /api/v1/status returns 200 with version', async () => {
+    const resp = await app.inject({ method: 'GET', url: '/api/v1/status' })
+    assert.equal(resp.statusCode, 200)
+    const body = resp.json()
+    assert.equal(body.data.version, '0.0.0-test')
+    assert.equal(body.data.name, 'ChatLab API')
+  })
+
+  it('GET /api/v1/schema returns schema definition', async () => {
+    const resp = await app.inject({ method: 'GET', url: '/api/v1/schema' })
+    assert.equal(resp.statusCode, 200)
+    const body = resp.json()
+    assert.equal(body.data.format, 'ChatLab Format')
+  })
+
+  it('GET /api/v1/sessions returns empty list', async () => {
+    const resp = await app.inject({ method: 'GET', url: '/api/v1/sessions' })
+    assert.equal(resp.statusCode, 200)
+    assert.deepEqual(resp.json().data, [])
+  })
+
+  it('GET /_web/sessions returns empty list', async () => {
+    const resp = await app.inject({ method: 'GET', url: '/_web/sessions' })
+    assert.equal(resp.statusCode, 200)
+    assert.ok(Array.isArray(resp.json()))
+  })
+
+  it('GET /_web/sessions/:id returns 404 for missing session', async () => {
+    const resp = await app.inject({ method: 'GET', url: '/_web/sessions/nonexistent' })
+    assert.equal(resp.statusCode, 404)
+  })
+
+  it('GET /_web/nlp/pos-tags returns 200', async () => {
+    const resp = await app.inject({ method: 'GET', url: '/_web/nlp/pos-tags' })
+    assert.equal(resp.statusCode, 200)
+  })
+
+  it('GET /_web/preferences returns 200 or 500', async () => {
+    const resp = await app.inject({ method: 'GET', url: '/_web/preferences' })
+    assert.ok([200, 500].includes(resp.statusCode), `Expected 200 or 500, got ${resp.statusCode}`)
+  })
+
+  it('leaves lifecycle-owned automation routes to the host initializer', () => {
+    assert.equal(app.hasRoute({ method: 'GET', url: '/_web/automation/config' }), false)
+  })
+
+  it('GET /api/v1/sessions/:id/messages applies query filters and pagination', async () => {
+    const db = createSessionDb()
+    const routeApp = Fastify()
+    const ctx = createTestContext(new Map([['chat-1', db]]))
+    registerRestSessionRoutes(routeApp, createDatabaseRestSessionProvider(ctx.dbManager))
+    await routeApp.ready()
+
+    const resp = await routeApp.inject({
+      method: 'GET',
+      url: '/api/v1/sessions/chat-1/messages?keyword=alpha&senderId=1&startTime=100&endTime=250&limit=10',
+    })
+
+    await routeApp.close()
+    db.close()
+
+    assert.equal(resp.statusCode, 200)
+    const body = resp.json()
+    assert.equal(body.success, true)
+    assert.equal(body.data.total, 1)
+    assert.equal(body.data.messages.length, 1)
+    assert.equal(body.data.messages[0].id, 1)
+    assert.equal(body.data.messages[0].senderName, 'Alice')
+    assert.equal(body.data.limit, 10)
+  })
+
+  it('GET /api/v1/sessions/:id/members preserves the legacy name field with detailed member data', async () => {
+    const db = createSessionDb()
+    const routeApp = Fastify()
+    const ctx = createTestContext(new Map([['chat-1', db]]))
+    registerRestSessionRoutes(routeApp, createDatabaseRestSessionProvider(ctx.dbManager))
+    await routeApp.ready()
+
+    const resp = await routeApp.inject({
+      method: 'GET',
+      url: '/api/v1/sessions/chat-1/members',
+    })
+
+    await routeApp.close()
+    db.close()
+
+    assert.equal(resp.statusCode, 200)
+    const [member] = resp.json().data
+    assert.equal(member.name, 'Alice')
+    assert.equal(member.accountName, 'Alice')
+    assert.deepEqual(member.aliases, [])
+  })
+
+  it('POST /api/v1/sessions/:id/sql rejects write statements and keeps data unchanged', async () => {
+    const db = createSessionDb()
+    const routeApp = Fastify()
+    const ctx = createTestContext(new Map([['chat-1', db]]))
+    registerRestSessionRoutes(routeApp, createDatabaseRestSessionProvider(ctx.dbManager))
+    await routeApp.ready()
+
+    const resp = await routeApp.inject({
+      method: 'POST',
+      url: '/api/v1/sessions/chat-1/sql',
+      payload: { sql: 'DELETE FROM message' },
+    })
+    const countRow = db.prepare('SELECT COUNT(*) AS count FROM message').get() as { count: number }
+
+    await routeApp.close()
+    db.close()
+
+    assert.equal(resp.statusCode, 400)
+    assert.equal(resp.json().error.code, 'SQL_READONLY_VIOLATION')
+    assert.equal(countRow.count, 3)
+  })
+
+  it('POST /_web/sessions/:id/sql returns rows in the SQL Lab columnar shape', async () => {
+    const db = createSessionDb()
+    const routeApp = Fastify()
+    registerSharedRoutes(routeApp, createTestContext(new Map([['chat-1', db]])))
+    await routeApp.ready()
+
+    const resp = await routeApp.inject({
+      method: 'POST',
+      url: '/_web/sessions/chat-1/sql',
+      payload: { sql: 'SELECT id, content FROM message ORDER BY id LIMIT 2' },
+    })
+
+    await routeApp.close()
+    db.close()
+
+    assert.equal(resp.statusCode, 200)
+    const body = resp.json()
+    assert.deepEqual(body.columns, ['id', 'content'])
+    assert.deepEqual(body.rows, [
+      [1, 'alpha first'],
+      [2, 'alpha from bob'],
+    ])
+    assert.equal(body.rowCount, 2)
+    assert.equal(body.limited, false)
+    assert.equal(typeof body.duration, 'number')
+  })
+
+  it('POST /_web/sessions/:id/members/batch-delete deletes selected member data in one request', async () => {
+    const db = createSessionDb()
+    db.exec(`
+      INSERT INTO member (id, platform_id, account_name, group_nickname, avatar)
+      VALUES (3, 'carol', 'Carol', NULL, NULL);
+      INSERT INTO message (id, sender_id, ts, type, content, platform_message_id)
+      VALUES (4, 3, 400, 0, 'carol stays', 'm-4');
+      INSERT INTO member_name_history (id, member_id, name, start_time, end_time)
+      VALUES (3, 3, 'Carol', 400, 400);
+    `)
+    const routeApp = Fastify()
+    registerSharedRoutes(routeApp, createTestContext(new Map([['chat-1', db]])))
+    await routeApp.ready()
+
+    const resp = await routeApp.inject({
+      method: 'POST',
+      url: '/_web/sessions/chat-1/members/batch-delete',
+      payload: { memberIds: [1, 2] },
+    })
+    const remainingMembers = db.prepare('SELECT id FROM member ORDER BY id').all()
+    const remainingMessages = db.prepare('SELECT sender_id AS senderId FROM message ORDER BY id').all()
+    const remainingHistory = db.prepare('SELECT member_id AS memberId FROM member_name_history ORDER BY id').all()
+
+    await routeApp.close()
+    db.close()
+
+    assert.equal(resp.statusCode, 200)
+    assert.deepEqual(resp.json(), { success: true, deletedCount: 2 })
+    assert.deepEqual(remainingMembers, [{ id: 3 }])
+    assert.deepEqual(remainingMessages, [{ senderId: 3 }])
+    assert.deepEqual(remainingHistory, [{ memberId: 3 }])
+  })
+
+  it('POST /_web/sessions/:id/members/batch-delete rejects an empty selection', async () => {
+    const db = createSessionDb()
+    const routeApp = Fastify()
+    registerSharedRoutes(routeApp, createTestContext(new Map([['chat-1', db]])))
+    await routeApp.ready()
+
+    const resp = await routeApp.inject({
+      method: 'POST',
+      url: '/_web/sessions/chat-1/members/batch-delete',
+      payload: { memberIds: [] },
+    })
+    const memberCount = db.prepare('SELECT COUNT(*) AS count FROM member').get() as { count: number }
+
+    await routeApp.close()
+    db.close()
+
+    assert.equal(resp.statusCode, 400)
+    assert.deepEqual(resp.json(), { success: false, error: 'memberIds must contain at least one positive integer' })
+    assert.equal(memberCount.count, 2)
+  })
+
+  it('POST /_web/sessions/:id/members/batch-delete preserves missing-session errors', async () => {
+    const routeApp = Fastify()
+    registerSharedRoutes(routeApp, createTestContext())
+    await routeApp.ready()
+
+    const resp = await routeApp.inject({
+      method: 'POST',
+      url: '/_web/sessions/missing/members/batch-delete',
+      payload: { memberIds: [1] },
+    })
+
+    await routeApp.close()
+
+    assert.equal(resp.statusCode, 404)
+  })
+
+  it('POST /_web/sessions/:id/members/batch-delete rolls back every deletion when one member fails', async () => {
+    const db = createSessionDb()
+    db.exec(`
+      CREATE TRIGGER prevent_bob_delete
+      BEFORE DELETE ON member
+      WHEN OLD.id = 2
+      BEGIN
+        SELECT RAISE(ABORT, 'Bob cannot be deleted');
+      END;
+    `)
+    const routeApp = Fastify()
+    registerSharedRoutes(routeApp, createTestContext(new Map([['chat-1', db]])))
+    await routeApp.ready()
+
+    const resp = await routeApp.inject({
+      method: 'POST',
+      url: '/_web/sessions/chat-1/members/batch-delete',
+      payload: { memberIds: [1, 2] },
+    })
+    const memberCount = db.prepare('SELECT COUNT(*) AS count FROM member').get() as { count: number }
+    const messageCount = db.prepare('SELECT COUNT(*) AS count FROM message').get() as { count: number }
+    const historyCount = db.prepare('SELECT COUNT(*) AS count FROM member_name_history').get() as { count: number }
+
+    await routeApp.close()
+    db.close()
+
+    assert.equal(resp.statusCode, 500)
+    assert.deepEqual(resp.json(), { success: false, error: 'Failed to delete selected members' })
+    assert.equal(memberCount.count, 2)
+    assert.equal(messageCount.count, 3)
+    assert.equal(historyCount.count, 2)
+  })
+
+  it('POST /_web/ai/logs/show reveals the current AI log file through the host shell', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chatlab-ai-log-route-'))
+    const currentLogPath = path.join(dir, 'logs', 'ai', 'ai_current.log')
+    fs.mkdirSync(path.dirname(currentLogPath), { recursive: true })
+    fs.writeFileSync(currentLogPath, 'current log')
+
+    const ctx = createTestContext()
+    ctx.pathProvider = { ...ctx.pathProvider, getLogsDir: () => path.join(dir, 'logs') }
+    ctx.getCurrentAiLogPath = () => currentLogPath
+    let shownPath: string | null = null
+    ctx.showInFolder = async (filePath) => {
+      shownPath = filePath
+    }
+
+    const routeApp = Fastify()
+    registerSharedRoutes(routeApp, ctx)
+    await routeApp.ready()
+
+    try {
+      const resp = await routeApp.inject({ method: 'POST', url: '/_web/ai/logs/show' })
+
+      assert.equal(resp.statusCode, 200)
+      assert.deepEqual(resp.json(), { success: true, path: currentLogPath })
+      assert.equal(shownPath, currentLogPath)
+    } finally {
+      await routeApp.close()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('POST /_web/ai/logs/show does not open files for remote web clients', async () => {
+    const ctx = createTestContext()
+    ctx.getCurrentAiLogPath = () => path.join(testSystemDir, 'logs', 'ai', 'ai_current.log')
+    let didOpen = false
+    ctx.showInFolder = async () => {
+      didOpen = true
+    }
+
+    const routeApp = Fastify()
+    registerSharedRoutes(routeApp, ctx)
+    await routeApp.ready()
+
+    try {
+      const resp = await routeApp.inject({
+        method: 'POST',
+        url: '/_web/ai/logs/show',
+        remoteAddress: '192.168.1.50',
+      })
+
+      assert.equal(resp.statusCode, 200)
+      assert.deepEqual(resp.json(), { success: false, error: 'Opening AI logs is only supported on this device' })
+      assert.equal(didOpen, false)
+    } finally {
+      await routeApp.close()
+    }
+  })
+
+  it('DELETE /_web/automation/data-sources/:id/sessions/:sessId deletes imported local session when deleteData=true', async () => {
+    const ds = {
+      id: 'source-1',
+      sessions: [{ id: 'session-1', name: 'First chat', remoteSessionId: 'remote-1', targetSessionId: 'local-1' }],
+    }
+    const deletedSessionIds: string[] = []
+    const ctx = createTestContext()
+    ctx.automation = {
+      serverInfo: { port: 5200, host: '127.0.0.1', token: 'api-token' },
+      dsManager: {
+        loadAll: () => [ds],
+        get: (id: string) => (id === ds.id ? ds : null),
+        add: (source: Record<string, unknown>) => ({ id: 'new-source', sessions: [], ...source }),
+        update: () => null,
+        delete: () => false,
+        addSessions: () => [],
+        removeSession: (sourceId: string, sessionId: string) => {
+          if (sourceId !== ds.id || sessionId !== ds.sessions[0].id) return null
+          return ds.sessions.shift() ?? null
+        },
+      },
+      pullEngine: {
+        triggerPull: async () => ({ success: true, newMessageCount: 0 }),
+        triggerPullAll: async () => ({ success: true, newMessageCount: 0 }),
+        getProgress: () => [],
+      },
+      deleteSessionData: (sessionId: string) => {
+        deletedSessionIds.push(sessionId)
+      },
+    }
+
+    const routeApp = Fastify()
+    registerAutomationRoutes(routeApp, ctx)
+    await routeApp.ready()
+
+    try {
+      const resp = await routeApp.inject({
+        method: 'DELETE',
+        url: '/_web/automation/data-sources/source-1/sessions/session-1?deleteData=true',
+      })
+
+      assert.equal(resp.statusCode, 200)
+      assert.deepEqual(resp.json(), { success: true })
+      assert.deepEqual(deletedSessionIds, ['local-1'])
+      assert.deepEqual(ds.sessions, [])
+    } finally {
+      await routeApp.close()
+    }
+  })
+
+  it('PATCH /_web/sessions/:id/name updates the shared session metadata', async () => {
+    const db = createSessionDb()
+    const routeApp = Fastify()
+    registerSessionRoutes(routeApp, createTestContext(new Map([['chat-1', db]])))
+    await routeApp.ready()
+
+    const resp = await routeApp.inject({
+      method: 'PATCH',
+      url: '/_web/sessions/chat-1/name',
+      payload: { name: 'Renamed Chat' },
+    })
+    const meta = db.prepare('SELECT name FROM meta LIMIT 1').get() as { name: string }
+
+    await routeApp.close()
+    db.close()
+
+    assert.equal(resp.statusCode, 200)
+    assert.deepEqual(resp.json(), { success: true })
+    assert.equal(meta.name, 'Renamed Chat')
+  })
+
+  it('DELETE /_web/sessions/:id delegates to the session adapter', async () => {
+    const db = createSessionDb()
+    const dbs = new Map<string, DatabaseAdapter>([['chat-1', db]])
+    const routeApp = Fastify()
+    registerSessionRoutes(routeApp, createTestContext(dbs))
+    await routeApp.ready()
+
+    const resp = await routeApp.inject({ method: 'DELETE', url: '/_web/sessions/chat-1' })
+
+    await routeApp.close()
+    db.close()
+
+    assert.equal(resp.statusCode, 200)
+    assert.deepEqual(resp.json(), { success: true })
+    assert.equal(dbs.has('chat-1'), false)
+  })
+
+  it('owner profile routes select, apply and dismiss across sessions', async () => {
+    const prefDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chatlab-owner-routes-'))
+    const current = createSessionDb()
+    current.exec(`UPDATE meta SET owner_id = NULL, platform = 'whatsapp'`)
+    const other = createSessionDb()
+    other.exec(`UPDATE meta SET owner_id = NULL, platform = 'whatsapp'`)
+    const dismissedOnly = createSessionDb()
+    dismissedOnly.exec(`UPDATE meta SET owner_id = NULL, platform = 'whatsapp'; DELETE FROM member`)
+
+    const dbs = new Map<string, DatabaseAdapter>([
+      ['chat-1', current],
+      ['chat-2', other],
+      ['chat-3', dismissedOnly],
+    ])
+    const ctx = createTestContext(dbs)
+    ctx.preferencesManager = new PreferencesManager(prefDir)
+    const routeApp = Fastify()
+    registerSessionRoutes(routeApp, ctx)
+    await routeApp.ready()
+
+    try {
+      // Dismiss the prompt for chat-3 (no matching member there)
+      const dismissResp = await routeApp.inject({ method: 'POST', url: '/_web/sessions/chat-3/owner/dismiss-prompt' })
+      assert.equal(dismissResp.statusCode, 200)
+      assert.deepEqual(dismissResp.json(), { success: true })
+
+      // apply-profile before any profile exists reports no_profile and the dismissed flag
+      const earlyApply = await routeApp.inject({ method: 'POST', url: '/_web/sessions/chat-3/owner/apply-profile' })
+      assert.equal(earlyApply.statusCode, 200)
+      assert.deepEqual(earlyApply.json(), { applied: false, reason: 'no_profile', dismissed: true })
+
+      // Manual selection writes owner, saves profile and batch-applies to chat-2
+      const selectResp = await routeApp.inject({
+        method: 'POST',
+        url: '/_web/sessions/chat-1/owner/select',
+        payload: { ownerPlatformId: 'alice' },
+      })
+      assert.equal(selectResp.statusCode, 200)
+      const selectBody = selectResp.json()
+      assert.equal(selectBody.ownerId, 'alice')
+      assert.equal(selectBody.platform, 'whatsapp')
+      assert.deepEqual(selectBody.updatedSessionIds, ['chat-2'])
+      const currentMeta = current.prepare('SELECT owner_id FROM meta LIMIT 1').get() as { owner_id: string }
+      const otherMeta = other.prepare('SELECT owner_id FROM meta LIMIT 1').get() as { owner_id: string }
+      assert.equal(currentMeta.owner_id, 'alice')
+      assert.equal(otherMeta.owner_id, 'alice')
+
+      // apply-profile on an already-owned session reports already_set
+      const applyResp = await routeApp.inject({ method: 'POST', url: '/_web/sessions/chat-2/owner/apply-profile' })
+      assert.equal(applyResp.statusCode, 200)
+      assert.deepEqual(applyResp.json(), { applied: false, ownerId: 'alice', reason: 'already_set', dismissed: false })
+    } finally {
+      await routeApp.close()
+      current.close()
+      other.close()
+      dismissedOnly.close()
+      fs.rmSync(prefDir, { recursive: true, force: true })
+    }
+  })
+})

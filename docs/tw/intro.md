@@ -21,7 +21,7 @@ ChatLab 的誕生，就是為了**讓每位使用者都能安全地分析、回�
 
 ## 下一步
 
-<!-- 想要快速了解如何使用 ChatLab，請閱讀 [快速上手](./quick-start.md) 指南。 -->
+<!-- 想要快速了解如何使用 ChatLab，請閱讀 [快速開始](./usage/quick-start.md) 指南。 -->
 
 遇到了匯入、AI 對話錯誤等問題，請參照 [常見問題](./usage/faq.md) 解決。
 
@@ -29,4 +29,4 @@ ChatLab 的誕生，就是為了**讓每位使用者都能安全地分析、回�
 
 如果您是開發者，並支援了其他聊天應用的聊天記錄匯出，歡迎相容 [聊天資料交換標準化格式](./standard/chatlab-format.md)。
 
-如果還有其他問題，歡迎加入社群回饋與交流：[加入社群](./other/community.md)
+如果還有其他問題，歡迎加入社群回饋與交流：[加入社群](https://chatlab.fun/tw/other/community)

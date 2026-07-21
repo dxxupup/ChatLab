@@ -1,0 +1,412 @@
+/**
+ * Chat session DB migration definitions (platform-agnostic).
+ *
+ * Extracted from electron/main/database/migrations.ts.
+ * Migration scripts use only DatabaseAdapter — no Electron or Node-specific APIs.
+ * Version 4 (FTS backfill) requires a tokenizer injected via MigrationDeps.
+ */
+
+import type { DatabaseAdapter } from '@openchatlab/core'
+import type { PathProvider } from '@openchatlab/core'
+import type { Migration as CoreMigration } from '@openchatlab/core'
+import { raiseDataDirMinRuntimeVersion, type RuntimeIdentity } from '../data-dir-compat'
+
+export interface MigrationDeps {
+  /** FTS tokenizer — needed by v4 migration for backfilling the FTS index */
+  tokenizeForFts?: (content: string) => string | null
+}
+
+export interface ChatDbCompatibilityRaise {
+  migrationVersion: number
+  minRuntimeVersion: string
+  dataCompatibilityVersion: number
+  reason: string
+  module: string
+}
+
+export const CHAT_DB_COMPATIBILITY_RAISES: ChatDbCompatibilityRaise[] = [
+  {
+    migrationVersion: 6,
+    minRuntimeVersion: '0.25.1',
+    dataCompatibilityVersion: 1,
+    reason: 'segment-schema',
+    module: 'chat-db-migration',
+  },
+]
+
+export function raiseChatDbCompatibilityGate(pathProvider: PathProvider, runtime: RuntimeIdentity): void {
+  for (const compatibilityRaise of CHAT_DB_COMPATIBILITY_RAISES) {
+    raiseDataDirMinRuntimeVersion(pathProvider, {
+      minRuntimeVersion: compatibilityRaise.minRuntimeVersion,
+      dataCompatibilityVersion: compatibilityRaise.dataCompatibilityVersion,
+      reason: compatibilityRaise.reason,
+      runtime,
+      module: compatibilityRaise.module,
+    })
+  }
+}
+
+/**
+ * Build the chat DB migration list.
+ *
+ * @param deps Optional dependencies (tokenizer for FTS backfill)
+ * @returns Array of migrations compatible with core `runMigrations`
+ */
+export function getChatDbMigrations(deps?: MigrationDeps): CoreMigration[] {
+  const hasColumn = (db: DatabaseAdapter, tableName: string, columnName: string): boolean => {
+    const tableInfo = db.pragma(`table_info(${tableName})`) as Array<{ name: string }>
+    return tableInfo.some((col) => col.name === columnName)
+  }
+
+  const addColumnIfMissing = (db: DatabaseAdapter, tableName: string, columnName: string, definition: string): void => {
+    if (!hasColumn(db, tableName, columnName)) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`)
+    }
+  }
+
+  return [
+    {
+      version: 1,
+      description: 'Add owner_id column to meta',
+      up: (db: DatabaseAdapter) => {
+        const tableInfo = db.pragma('table_info(meta)') as Array<{ name: string }>
+        if (!tableInfo.some((col) => col.name === 'owner_id')) {
+          db.exec('ALTER TABLE meta ADD COLUMN owner_id TEXT')
+        }
+      },
+    },
+    {
+      version: 2,
+      description: 'Add roles, reply_to_message_id, platform_message_id columns',
+      up: (db: DatabaseAdapter) => {
+        const memberTableInfo = db.pragma('table_info(member)') as Array<{ name: string }>
+        if (!memberTableInfo.some((col) => col.name === 'roles')) {
+          db.exec("ALTER TABLE member ADD COLUMN roles TEXT DEFAULT '[]'")
+        }
+
+        const messageTableInfo = db.pragma('table_info(message)') as Array<{ name: string }>
+
+        if (!messageTableInfo.some((col) => col.name === 'reply_to_message_id')) {
+          db.exec('ALTER TABLE message ADD COLUMN reply_to_message_id TEXT DEFAULT NULL')
+        }
+
+        if (!messageTableInfo.some((col) => col.name === 'platform_message_id')) {
+          db.exec('ALTER TABLE message ADD COLUMN platform_message_id TEXT DEFAULT NULL')
+        }
+
+        try {
+          db.exec('CREATE INDEX IF NOT EXISTS idx_message_platform_id ON message(platform_message_id)')
+        } catch {
+          // Index may already exist
+        }
+      },
+    },
+    {
+      version: 3,
+      description: 'Add chat_session and message_context tables',
+      up: (db: DatabaseAdapter) => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS chat_session (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_ts INTEGER NOT NULL,
+            end_ts INTEGER NOT NULL,
+            message_count INTEGER DEFAULT 0,
+            is_manual INTEGER DEFAULT 0,
+            summary TEXT
+          )
+        `)
+
+        try {
+          db.exec('CREATE INDEX IF NOT EXISTS idx_session_time ON chat_session(start_ts, end_ts)')
+        } catch {
+          // Index may already exist
+        }
+
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS message_context (
+            message_id INTEGER PRIMARY KEY,
+            session_id INTEGER NOT NULL,
+            topic_id INTEGER
+          )
+        `)
+
+        try {
+          db.exec('CREATE INDEX IF NOT EXISTS idx_context_session ON message_context(session_id)')
+        } catch {
+          // Index may already exist
+        }
+
+        const tableInfo = db.pragma('table_info(meta)') as Array<{ name: string }>
+        if (!tableInfo.some((col) => col.name === 'session_gap_threshold')) {
+          db.exec('ALTER TABLE meta ADD COLUMN session_gap_threshold INTEGER')
+        }
+      },
+    },
+    {
+      version: 4,
+      description: 'Add FTS5 full-text search index',
+      up: (db: DatabaseAdapter) => {
+        const hasTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='message_fts'").get()
+        if (hasTable) return
+
+        db.exec(`
+          CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
+            content,
+            content='',
+            content_rowid=id
+          )
+        `)
+
+        const tokenize = deps?.tokenizeForFts
+        if (!tokenize) return
+
+        const BATCH_SIZE = 5000
+        const insertFts = db.prepare('INSERT INTO message_fts(rowid, content) VALUES (?, ?)')
+
+        const countRow = db
+          .prepare("SELECT COUNT(*) as total FROM message WHERE type = 0 AND content IS NOT NULL AND content != ''")
+          .get() as { total: number } | undefined
+
+        const total = countRow?.total ?? 0
+        let offset = 0
+        while (offset < total) {
+          const rows = db
+            .prepare(
+              `SELECT id, content FROM message
+               WHERE type = 0 AND content IS NOT NULL AND content != ''
+               ORDER BY id ASC LIMIT ? OFFSET ?`
+            )
+            .all(BATCH_SIZE, offset) as Array<{ id: number; content: string }>
+
+          if (rows.length === 0) break
+
+          for (const row of rows) {
+            const tokens = tokenize(row.content)
+            if (tokens) {
+              insertFts.run(row.id, tokens)
+            }
+          }
+
+          offset += BATCH_SIZE
+        }
+      },
+    },
+    {
+      version: 5,
+      description: 'Repair legacy member/message columns',
+      up: (db: DatabaseAdapter) => {
+        addColumnIfMissing(db, 'meta', 'group_id', 'TEXT')
+        addColumnIfMissing(db, 'meta', 'group_avatar', 'TEXT')
+        addColumnIfMissing(db, 'meta', 'owner_id', 'TEXT')
+        addColumnIfMissing(db, 'meta', 'session_gap_threshold', 'INTEGER')
+
+        const memberHadName = hasColumn(db, 'member', 'name')
+        const memberHadNickname = hasColumn(db, 'member', 'nickname')
+        addColumnIfMissing(db, 'member', 'account_name', 'TEXT')
+        addColumnIfMissing(db, 'member', 'group_nickname', 'TEXT')
+        addColumnIfMissing(db, 'member', 'aliases', "TEXT DEFAULT '[]'")
+        addColumnIfMissing(db, 'member', 'avatar', 'TEXT')
+        addColumnIfMissing(db, 'member', 'roles', "TEXT DEFAULT '[]'")
+
+        if (memberHadName) {
+          db.exec("UPDATE member SET account_name = COALESCE(NULLIF(account_name, ''), name)")
+        }
+        if (memberHadNickname) {
+          db.exec("UPDATE member SET group_nickname = COALESCE(NULLIF(group_nickname, ''), nickname)")
+        }
+        db.exec("UPDATE member SET aliases = COALESCE(aliases, '[]'), roles = COALESCE(roles, '[]')")
+
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS member_name_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            name_type TEXT DEFAULT 'account_name',
+            name TEXT NOT NULL,
+            start_ts INTEGER NOT NULL,
+            end_ts INTEGER,
+            FOREIGN KEY(member_id) REFERENCES member(id)
+          )
+        `)
+        addColumnIfMissing(db, 'member_name_history', 'name_type', "TEXT DEFAULT 'account_name'")
+        addColumnIfMissing(db, 'message', 'sender_account_name', 'TEXT')
+        addColumnIfMissing(db, 'message', 'sender_group_nickname', 'TEXT')
+        addColumnIfMissing(db, 'message', 'reply_to_message_id', 'TEXT DEFAULT NULL')
+        addColumnIfMissing(db, 'message', 'platform_message_id', 'TEXT DEFAULT NULL')
+
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS chat_session (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_ts INTEGER NOT NULL,
+            end_ts INTEGER NOT NULL,
+            message_count INTEGER DEFAULT 0,
+            is_manual INTEGER DEFAULT 0,
+            summary TEXT
+          )
+        `)
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS message_context (
+            message_id INTEGER PRIMARY KEY,
+            session_id INTEGER NOT NULL,
+            topic_id INTEGER
+          )
+        `)
+
+        db.exec('CREATE INDEX IF NOT EXISTS idx_message_platform_id ON message(platform_message_id)')
+        db.exec('CREATE INDEX IF NOT EXISTS idx_member_name_history_member_id ON member_name_history(member_id)')
+        db.exec('CREATE INDEX IF NOT EXISTS idx_session_time ON chat_session(start_ts, end_ts)')
+        db.exec('CREATE INDEX IF NOT EXISTS idx_context_session ON message_context(session_id)')
+      },
+    },
+    {
+      version: 6,
+      description: 'Rename chat_session index tables to segment terminology',
+      up: (db: DatabaseAdapter) => {
+        const hasTable = (tableName: string): boolean => {
+          const row = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?").get(tableName) as
+            | Record<string, unknown>
+            | undefined
+          return !!row
+        }
+
+        db.exec(`
+          DROP INDEX IF EXISTS idx_session_time;
+          DROP INDEX IF EXISTS idx_context_session;
+        `)
+
+        const hasLegacyChatSession = hasTable('chat_session')
+        const hasSegment = hasTable('segment')
+
+        if (hasLegacyChatSession && !hasSegment) {
+          db.exec('ALTER TABLE chat_session RENAME TO segment')
+        } else if (hasLegacyChatSession && hasSegment) {
+          db.exec(`
+            INSERT OR IGNORE INTO segment (id, start_ts, end_ts, message_count, is_manual, summary)
+            SELECT id, start_ts, end_ts, message_count, is_manual, summary
+            FROM chat_session;
+            DROP TABLE chat_session;
+          `)
+        }
+
+        if (hasTable('message_context') && hasColumn(db, 'message_context', 'session_id')) {
+          db.exec('ALTER TABLE message_context RENAME COLUMN session_id TO segment_id')
+        }
+
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS segment (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_ts INTEGER NOT NULL,
+            end_ts INTEGER NOT NULL,
+            message_count INTEGER DEFAULT 0,
+            is_manual INTEGER DEFAULT 0,
+            summary TEXT
+          );
+
+          CREATE TABLE IF NOT EXISTS message_context (
+            message_id INTEGER PRIMARY KEY,
+            segment_id INTEGER NOT NULL,
+            topic_id INTEGER
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_segment_time ON segment(start_ts, end_ts);
+          CREATE INDEX IF NOT EXISTS idx_context_segment ON message_context(segment_id);
+        `)
+      },
+    },
+    {
+      version: 7,
+      description: 'Repair fully missing segment message contexts',
+      up: (db: DatabaseAdapter) => {
+        const counts = db
+          .prepare(
+            `SELECT
+              (SELECT COUNT(*) FROM message) AS messageCount,
+              (SELECT COUNT(*) FROM segment) AS segmentCount,
+              (SELECT COUNT(*) FROM message_context) AS contextCount,
+              (SELECT COALESCE(SUM(message_count), 0) FROM segment) AS declaredMessageCount`
+          )
+          .get() as
+          | {
+              messageCount: number
+              segmentCount: number
+              contextCount: number
+              declaredMessageCount: number
+            }
+          | undefined
+
+        if (!counts || counts.messageCount === 0 || counts.segmentCount === 0 || counts.contextCount > 0) {
+          return
+        }
+
+        if (counts.declaredMessageCount !== counts.messageCount) {
+          throw new Error(
+            'Cannot safely repair missing message_context rows: segment message counts do not match message table'
+          )
+        }
+
+        const invalidRange = db
+          .prepare(
+            `WITH ordered_segments AS (
+              SELECT
+                id,
+                start_ts,
+                end_ts,
+                LAG(end_ts) OVER (ORDER BY start_ts, id) AS previousEndTs
+              FROM segment
+            )
+            SELECT COUNT(*) AS count
+            FROM ordered_segments
+            WHERE start_ts > end_ts OR (previousEndTs IS NOT NULL AND start_ts <= previousEndTs)`
+          )
+          .get() as { count: number } | undefined
+        if ((invalidRange?.count ?? 0) > 0) {
+          throw new Error(
+            'Cannot safely repair missing message_context rows: segment time ranges are invalid or overlapping'
+          )
+        }
+
+        const mismatchedSegments = db
+          .prepare(
+            `SELECT COUNT(*) AS count
+            FROM (
+              SELECT s.id
+              FROM segment s
+              LEFT JOIN message m ON m.ts >= s.start_ts AND m.ts <= s.end_ts
+              GROUP BY s.id
+              HAVING COUNT(m.id) != s.message_count
+            )`
+          )
+          .get() as { count: number } | undefined
+        if ((mismatchedSegments?.count ?? 0) > 0) {
+          throw new Error(
+            'Cannot safely repair missing message_context rows: messages do not match segment time ranges'
+          )
+        }
+
+        const result = db
+          .prepare(
+            `INSERT INTO message_context (message_id, segment_id, topic_id)
+            SELECT m.id, s.id, NULL
+            FROM segment s
+            JOIN message m ON m.ts >= s.start_ts AND m.ts <= s.end_ts`
+          )
+          .run()
+        if (result.changes !== counts.messageCount) {
+          throw new Error('Cannot safely repair missing message_context rows: rebuilt row count is inconsistent')
+        }
+      },
+    },
+    {
+      version: 8,
+      description: 'Add analysis tool performance indexes',
+      up: (db: DatabaseAdapter) => {
+        addColumnIfMissing(db, 'message', 'reply_to_message_id', 'TEXT DEFAULT NULL')
+
+        db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_message_sender_ts ON message(sender_id, ts);
+          CREATE INDEX IF NOT EXISTS idx_message_type_ts ON message(type, ts);
+          CREATE INDEX IF NOT EXISTS idx_message_reply_to ON message(reply_to_message_id);
+        `)
+      },
+    },
+  ]
+}

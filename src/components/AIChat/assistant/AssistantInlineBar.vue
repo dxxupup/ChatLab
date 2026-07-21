@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
+import { getDefaultGeneralAssistantId } from '@openchatlab/shared-types'
 import { useAssistantStore, type AssistantSummary } from '@/stores/assistant'
 
 const props = defineProps<{
@@ -41,14 +42,8 @@ function handleDocumentMouseDown(event: MouseEvent) {
 const assistantStore = useAssistantStore()
 const { filteredAssistants, isLoaded } = storeToRefs(assistantStore)
 
-function getLocaleGeneralId(locale: string): string {
-  if (locale.startsWith('ja')) return 'general_ja'
-  if (locale.startsWith('en')) return 'general_en'
-  return 'general_cn'
-}
-
 const sortedAssistants = computed<AssistantSummary[]>(() => {
-  const preferredGeneralId = getLocaleGeneralId(props.locale)
+  const preferredGeneralId = getDefaultGeneralAssistantId(props.locale)
   return [...filteredAssistants.value].sort((a, b) => {
     if (a.id === preferredGeneralId) return -1
     if (b.id === preferredGeneralId) return 1
@@ -153,7 +148,7 @@ onUnmounted(() => {
     >
       <!-- 滑动选中焦点层：基于 CSS Transform 平滑移动 -->
       <div
-        class="absolute left-0 inset-y-0 -z-10 rounded-full bg-white ring-[1.5px] ring-primary-500 shadow-sm transition-all duration-350 ease-out dark:bg-primary-500/15 dark:ring-primary-400"
+        class="absolute left-0 inset-y-0 -z-10 rounded-full bg-white ring-[1.5px] ring-primary-500 shadow-sm transition-all duration-350 ease-out dark:bg-primary-700/15 dark:ring-primary-500"
         :style="ringStyle"
       ></div>
 
@@ -168,7 +163,7 @@ onUnmounted(() => {
         class="relative z-10 flex h-[32px] items-center justify-center whitespace-nowrap rounded-full px-4 text-[13px] font-medium transition-colors duration-200"
         :class="[
           selectedId === assistant.id
-            ? 'text-primary-600 dark:text-primary-300'
+            ? 'text-primary-600 dark:text-primary-400'
             : 'text-gray-500 hover:bg-gray-200/50 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-700/50 dark:hover:text-gray-200',
         ]"
         @click="emit('select', assistant.id)"
@@ -188,7 +183,7 @@ onUnmounted(() => {
 
         <div
           v-if="overflowPopoverOpen"
-          class="absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-gray-200/80 bg-white/95 p-1 shadow-lg backdrop-blur-md dark:border-gray-700 dark:bg-gray-900/95"
+          class="absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-gray-200/80 bg-white/95 p-1 shadow-overlay backdrop-blur-md dark:border-gray-700 dark:bg-page-dark/95"
         >
           <div class="custom-scrollbar max-h-60 space-y-0.5 overflow-y-auto">
             <p class="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">

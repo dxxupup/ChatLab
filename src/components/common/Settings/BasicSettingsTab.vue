@@ -8,13 +8,15 @@ import { useColorMode } from '@vueuse/core'
 import { availableLocales, type LocaleType } from '@/i18n'
 import NetworkSettingsSection from './NetworkSettingsSection.vue'
 import UITabs from '@/components/UI/Tabs.vue'
+import { usePlatformService } from '@/services'
+import { IS_ELECTRON } from '@/utils/platform'
 
 const { t } = useI18n()
 
 // Store
 const layoutStore = useLayoutStore()
 const settingsStore = useSettingsStore()
-const { screenshotMobileAdapt, toolsPanelPosition } = storeToRefs(layoutStore)
+const { toolsPanelPosition } = storeToRefs(layoutStore)
 const { locale, defaultSessionTab } = storeToRefs(settingsStore)
 
 // Auto Launch
@@ -22,8 +24,12 @@ const openAtLogin = ref(false)
 const isPackaged = ref(true)
 
 onMounted(async () => {
+  if (!IS_ELECTRON) {
+    isPackaged.value = false
+    return
+  }
   try {
-    const enabled = await window.api.app.getOpenAtLogin()
+    const enabled = await usePlatformService().getOpenAtLogin()
     openAtLogin.value = enabled
   } catch {
     isPackaged.value = false
@@ -31,7 +37,8 @@ onMounted(async () => {
 })
 
 async function handleAutoLaunchChange(enabled: boolean) {
-  const { success } = await window.api.app.setOpenAtLogin(enabled)
+  if (!IS_ELECTRON) return
+  const { success } = await usePlatformService().setOpenAtLogin(enabled)
   if (!success) {
     openAtLogin.value = !enabled
     isPackaged.value = false
@@ -76,17 +83,6 @@ const toolsPanelPositionOptions = computed(() => [
   { label: t('settings.basic.toolsPanel.positionHeader'), value: 'header' },
   { label: t('settings.basic.toolsPanel.positionSide'), value: 'side' },
 ])
-
-// Sync theme with main process
-import { watch } from 'vue'
-watch(
-  colorMode,
-  (val) => {
-    const mode = val === 'auto' ? 'system' : (val as 'light' | 'dark')
-    window.api.setThemeSource(mode)
-  },
-  { immediate: true }
-)
 </script>
 
 <template>
@@ -108,20 +104,24 @@ watch(
             <UITabs v-model="currentLocale" size="sm" class="gap-0" :items="languageOptions"></UITabs>
           </div>
         </div>
-        <div class="border-t border-gray-200 dark:border-gray-700"></div>
-        <div class="flex items-center justify-between p-4">
-          <div class="flex-1 pr-4">
-            <p class="text-sm font-medium text-gray-900 dark:text-white">
-              {{ t('settings.basic.autoLaunch.openAtLogin') }}
-            </p>
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              {{
-                isPackaged ? t('settings.basic.autoLaunch.openAtLoginDesc') : t('settings.basic.autoLaunch.devModeHint')
-              }}
-            </p>
+        <template v-if="IS_ELECTRON">
+          <div class="border-t border-gray-200 dark:border-gray-700"></div>
+          <div class="flex items-center justify-between p-4">
+            <div class="flex-1 pr-4">
+              <p class="text-sm font-medium text-gray-900 dark:text-white">
+                {{ t('settings.basic.autoLaunch.openAtLogin') }}
+              </p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                {{
+                  isPackaged
+                    ? t('settings.basic.autoLaunch.openAtLoginDesc')
+                    : t('settings.basic.autoLaunch.devModeHint')
+                }}
+              </p>
+            </div>
+            <USwitch v-model="openAtLogin" :disabled="!isPackaged" @update:model-value="handleAutoLaunchChange" />
           </div>
-          <USwitch v-model="openAtLogin" :disabled="!isPackaged" @update:model-value="handleAutoLaunchChange" />
-        </div>
+        </template>
       </div>
     </div>
 
@@ -145,7 +145,7 @@ watch(
       </div>
     </div>
 
-    <!-- 偏好设置：默认标签页 + 截图 -->
+    <!-- 偏好设置 -->
     <div>
       <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
         <UIcon name="i-heroicons-adjustments-horizontal" class="h-4 w-4 text-purple-500" />
@@ -176,20 +176,10 @@ watch(
             <UTabs v-model="toolsPanelPosition" size="sm" class="gap-0" :items="toolsPanelPositionOptions"></UTabs>
           </div>
         </div>
-        <div class="border-t border-gray-200 dark:border-gray-700"></div>
-        <div class="flex items-center justify-between p-4">
-          <div class="flex-1 pr-4">
-            <p class="text-sm font-medium text-gray-900 dark:text-white">
-              {{ t('settings.basic.screenshot.mobileAdapt') }}
-            </p>
-            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('settings.basic.screenshot.mobileAdaptDesc') }}</p>
-          </div>
-          <USwitch v-model="screenshotMobileAdapt" />
-        </div>
       </div>
     </div>
 
-    <!-- 网络设置 -->
-    <NetworkSettingsSection />
+    <!-- 网络设置（仅 Electron 桌面版） -->
+    <NetworkSettingsSection v-if="IS_ELECTRON" />
   </div>
 </template>

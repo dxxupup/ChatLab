@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["../../src/*"],
+      "@openchatlab/*": ["../../packages/*"],
+      "@electron/*": ["./*"]
+    }
+  },
+  "files": [],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

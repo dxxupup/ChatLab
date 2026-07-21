@@ -1,10 +1,23 @@
 {
-  "ownerSelector": {
-    "title": "選擇你是誰",
-    "unset": "未設定",
-    "selectMember": "選擇成員",
-    "currentOwner": "目前：{name}",
-    "hint": "1. 會顯示在聊天紀錄檢視器右側 2. AI 對話中也會標示你的身分"
+  "ownerPrompt": {
+    "title": "你是誰？",
+    "subtitle": "選擇你在這個對話中的身分",
+    "description": "設定後你的訊息會顯示在聊天紀錄檢視器右側，AI 對話也能識別你的身分，分析更準確。同平台的其他對話會自動套用。",
+    "searchPlaceholder": "搜尋成員",
+    "noMatch": "沒有找到符合的成員",
+    "empty": "暫無成員資料",
+    "loadError": "成員資料載入失敗，請重試",
+    "later": "稍後",
+    "dontRemind": "此對話不再提醒",
+    "save": "儲存",
+    "clear": "清除目前選擇",
+    "saved": "已設定你的身分",
+    "appliedToOthers": "已自動套用到 {count} 個同平台對話",
+    "saveFailed": "設定身分失敗",
+    "currentOwner": "我是：{name}",
+    "choose": "選擇我是誰",
+    "change": "修改",
+    "helper": "設定後 AI 對話能識別你的身分，分析更準確"
   },
   "list": {
     "title": "成員管理",
@@ -16,13 +29,15 @@
       "accountName": "帳號名稱",
       "groupNickname": "群暱稱",
       "messageCount": "訊息數",
+      "lastMessageTime": "最後發言",
       "customAlias": "自訂別名",
       "actions": "操作"
     },
     "aliasPlaceholder": "輸入後按 Enter 新增",
     "delete": "刪除",
+    "deleteSelected": "刪除所選",
     "mergeSelected": "合併所選",
-    "mergeSelectedCount": "已選 {count} 位成員",
+    "selectedCount": "已選 {count} 位成員",
     "pagination": "顯示第 {start} - {end} 筆，共 {total} 位成員",
     "tip": "提示：新增別名後，搜尋與 AI 分析時會更容易辨識聊天對象。",
     "mergeModal": {
@@ -31,6 +46,10 @@
       "hint": "合併後無法復原，被合併成員的訊息將全部歸屬至保留成員。",
       "cancel": "取消",
       "confirm": "確認合併"
+    },
+    "batchDeleteModal": {
+      "title": "確認批次刪除成員？",
+      "content": "即將刪除所選的 {count} 位成員及其 {messageCount} 則訊息，此操作無法復原。"
     },
     "modal": {
       "title": "確認刪除成員？",
@@ -51,43 +70,19 @@
   },
   "relationships": {
     "loading": "正在分析 {'@'} 互動資料...",
-    "topMentioners": "📢 誰最喜歡 {'@'} 別人",
-    "totalMentions": "共 {count} 次 {'@'}",
-    "topMentioned": "🎯 誰最常被 {'@'}",
-    "popularMember": "群裡的人氣王",
+    "rankingTitle": "{'@'} 互動排行",
+    "rankModes": {
+      "mentioners": "主動 {'@'}",
+      "mentioned": "被 {'@'}"
+    },
+    "topMentionersDescription": "依主動 {'@'} 次數排序",
+    "topMentionedDescription": "依被 {'@'} 次數排序",
     "times": "次",
-    "oneWay": {
-      "title": "🐕 單向關注偵測",
-      "description": "發現 {count} 對單向關注關係（一方 {'@'} 另一方佔比 ≥80%）",
-      "neverRespond": "從不回應",
-      "reverse": "反向 {count} 次",
-      "ratio": "{value}% 單向"
-    },
-    "twoWay": {
-      "title": "💕 雙向奔赴偵測",
-      "description": "發現 {count} 對互動頻繁的 CP（互相 {'@'} 且平衡度 ≥30%）",
-      "interactions": "次互動",
-      "balance": "{value}% 平衡"
-    },
     "emptyTitle": "📱 {'@'} 互動分析",
-    "empty": "暫無 {'@'} 互動資料",
-    "modal": {
-      "title": "{name} 的 {'@'} 關係",
-      "topMentioned": "最常 {'@'} 的人",
-      "topMentioners": "最常 {'@'} TA 的人",
-      "timesCount": "{count} 次",
-      "close": "關閉"
-    }
+    "empty": "暫無 {'@'} 互動資料"
   },
   "private": {
     "title": "對話成員",
-    "description": "共 {count} 位成員，可為成員新增別名備註用於搜尋和 AI 分析",
-    "messageCount": "訊息數",
-    "percentage": "佔比 {value}%",
-    "customAlias": "自訂別名",
-    "aliasPlaceholder": "輸入後按 Enter 新增別名",
-    "empty": "暫無成員資料",
-    "tipTitle": "提示",
-    "tipContent": "新增別名可以更好地識別聊天紀錄中的對話對象，別名將用於搜尋和 AI 分析中。"
+    "description": "共 {count} 位成員，可為成員新增別名備註用於搜尋和 AI 分析"
   }
 }

@@ -2,17 +2,14 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { RelationshipStats, RelationshipMonthStats } from '@/types/analysis'
-import { ThemeCard, SectionCard, EmptyState, LoadingState } from '@/components/UI'
+import { useDataService } from '@/services'
+import { ReportCard, SectionCard, EmptyState, LoadingState } from '@/components/UI'
 import { EChart } from '@/components/charts'
 import RelationshipMetricCard from './RelationshipMetricCard.vue'
 import type { EChartsOption } from 'echarts'
+import type { TimeFilter } from '@openchatlab/shared-types'
 
 const { t, locale } = useI18n()
-
-interface TimeFilter {
-  startTs?: number
-  endTs?: number
-}
 
 const props = defineProps<{
   sessionId: string
@@ -35,7 +32,7 @@ async function loadData(options?: { localOnly?: 'perseverance' }) {
     isLoading.value = true
   }
   try {
-    stats.value = await window.chatApi.getRelationshipStats(props.sessionId, props.timeFilter, {
+    stats.value = await useDataService().getRelationshipStats(props.sessionId, props.timeFilter, {
       perseveranceThreshold: perseveranceThreshold.value,
     })
   } catch (error) {
@@ -298,7 +295,7 @@ function formatDuration(seconds: number): string {
       <template v-else-if="stats && hasData">
         <div class="space-y-6">
           <!-- 关系卡片 -->
-          <ThemeCard id="shareable-poster" variant="elevated" decorative class="flex flex-col">
+          <ReportCard id="shareable-poster">
             <!-- 1. 主视觉区域 (Primary Module) -->
             <div
               class="relative z-10 flex flex-col items-center justify-center gap-10 px-6 pt-10 pb-6 sm:px-8 lg:flex-row lg:items-start lg:justify-between lg:gap-8 xl:gap-12"
@@ -360,7 +357,7 @@ function formatDuration(seconds: number): string {
                     </div>
 
                     <div
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 font-black text-[10px] italic text-gray-400 shadow-inner dark:bg-gray-900/80 dark:text-gray-500"
+                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 font-black text-[10px] italic text-gray-400 shadow-inner dark:bg-page-dark/80 dark:text-gray-500"
                     >
                       VS
                     </div>
@@ -441,7 +438,7 @@ function formatDuration(seconds: number): string {
                 :left-value="formatResponseByMember(memberA?.memberId)"
                 :right-name="memberB?.name"
                 :right-value="formatResponseByMember(memberB?.memberId)"
-                value-class="text-lg text-amber-600 dark:text-amber-400"
+                value-class="text-base text-amber-600 dark:text-amber-400"
                 :description="t('views.relationship.responseLatency.hint')"
               />
 
@@ -483,7 +480,7 @@ function formatDuration(seconds: number): string {
                 {{ t('views.relationship.watermarkReport') }}
               </span>
             </div>
-          </ThemeCard>
+          </ReportCard>
         </div>
 
         <!-- 月度时间线 -->
@@ -493,7 +490,7 @@ function formatDuration(seconds: number): string {
               <div v-for="(month, idx) in stats.months" :key="month.month" class="relative pb-12 pl-10 last:pb-0">
                 <!-- Timeline Dot -->
                 <div
-                  class="absolute -left-[11px] top-1 flex h-5 w-5 items-center justify-center rounded-full bg-white ring-4 ring-white dark:bg-gray-900 dark:ring-gray-900"
+                  class="absolute -left-[11px] top-1 flex h-5 w-5 items-center justify-center rounded-full bg-white ring-4 ring-white dark:bg-page-dark dark:ring-page-dark"
                 >
                   <div
                     class="h-2.5 w-2.5 rounded-full shadow-sm"
@@ -508,9 +505,7 @@ function formatDuration(seconds: number): string {
                 </div>
 
                 <!-- Month Content Card -->
-                <div
-                  class="group relative overflow-hidden rounded-[20px] bg-card-bg shadow-sm ring-1 ring-gray-900/5 transition-all hover:-translate-y-0.5 hover:shadow-md dark:bg-card-dark dark:ring-white/10"
-                >
+                <div class="group relative overflow-hidden border-b border-gray-200/60 dark:border-white/5">
                   <!-- 装饰背景 -->
                   <div
                     v-if="month.totalSessions > 0"
@@ -560,9 +555,7 @@ function formatDuration(seconds: number): string {
                       <!-- 内容区：四列高度压缩卡片网格 -->
                       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
                         <!-- 1. 发起者 -->
-                        <div
-                          class="flex flex-col rounded-xl bg-blue-50/50 p-3 ring-1 ring-blue-100/50 dark:bg-blue-500/5 dark:ring-blue-500/10"
-                        >
+                        <div class="flex min-w-0 flex-col p-3">
                           <div class="mb-2.5 flex items-center gap-1.5">
                             <UIcon
                               name="i-heroicons-chat-bubble-bottom-center-text-solid"
@@ -603,9 +596,7 @@ function formatDuration(seconds: number): string {
                         </div>
 
                         <!-- 2. 终结者 -->
-                        <div
-                          class="flex flex-col rounded-xl bg-indigo-50/50 p-3 ring-1 ring-indigo-100/50 dark:bg-indigo-500/5 dark:ring-indigo-500/10"
-                        >
+                        <div class="flex min-w-0 flex-col p-3">
                           <div class="mb-2.5 flex items-center gap-1.5">
                             <UIcon
                               name="i-heroicons-hand-raised-solid"
@@ -646,9 +637,7 @@ function formatDuration(seconds: number): string {
                         </div>
 
                         <!-- 3. 响应时延 -->
-                        <div
-                          class="flex flex-col rounded-xl bg-amber-50/50 p-3 ring-1 ring-amber-100/50 dark:bg-amber-500/5 dark:ring-amber-500/10"
-                        >
+                        <div class="flex min-w-0 flex-col p-3">
                           <div class="mb-2.5 flex items-center gap-1.5">
                             <UIcon
                               name="i-heroicons-clock-solid"
@@ -679,9 +668,7 @@ function formatDuration(seconds: number): string {
                         </div>
 
                         <!-- 4. 锲而不舍 -->
-                        <div
-                          class="flex flex-col rounded-xl bg-purple-50/50 p-3 ring-1 ring-purple-100/50 dark:bg-purple-500/5 dark:ring-purple-500/10"
-                        >
+                        <div class="flex min-w-0 flex-col p-3">
                           <div class="mb-2.5 flex items-center gap-1.5">
                             <UIcon
                               name="i-heroicons-arrow-path-solid"

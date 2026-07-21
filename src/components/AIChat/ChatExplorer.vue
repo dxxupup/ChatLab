@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@/composables/useToast'
 import ConversationList from './chat/ConversationList.vue'
@@ -9,10 +9,11 @@ import AIChatInput from './input/AIChatInput.vue'
 import AIThinkingIndicator from './chat/AIThinkingIndicator.vue'
 import ChatStatusBar from './chat/ChatStatusBar.vue'
 import { useAIChat } from '@/composables/useAIChat'
-import CaptureButton from '@/components/common/CaptureButton.vue'
+import { useAIService, useLLMService } from '@/services'
 import AssistantInlineBar from './assistant/AssistantInlineBar.vue'
 import AssistantConfigModal from './assistant/AssistantConfigModal.vue'
 import AssistantMarketModal from './assistant/AssistantMarketModal.vue'
+import AssistantUpgradeModal from './assistant/AssistantUpgradeModal.vue'
 import SkillMarketModal from './skill/SkillMarketModal.vue'
 import SkillConfigModal from './skill/SkillConfigModal.vue'
 import PresetQuestions from './input/PresetQuestions.vue'
@@ -24,6 +25,7 @@ import { useChatScroll } from './composables/useChatScroll'
 import { useChatModals } from './composables/useChatModals'
 import { groupMessagesToQAPairs } from './utils/chatMessages'
 import type { MentionedMemberContext } from '@/composables/useAIChat'
+import type { AssistantUpgradeInfo } from '@openchatlab/shared-types'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -46,15 +48,16 @@ const {
   currentKeywords,
   isLoadingSource,
   isAIThinking,
-  currentConversationId,
+  currentAIChatId,
   currentToolStatus,
   toolsUsedInCurrentRound,
   sessionTokenUsage,
   agentStatus,
   selectedAssistantId,
   sendMessage,
-  loadConversation,
-  startNewConversation,
+  editMessageAndRegenerate,
+  loadAIChat,
+  startNewAIChat,
   loadMoreSourceMessages,
   updateMaxMessages,
   stopGeneration,
@@ -91,6 +94,28 @@ const {
 // Store
 const promptStore = usePromptStore()
 
+// 使用后端 tokenizer 精确计算的 context tokens
+const estimatedContextTokens = ref(0)
+
+watch(
+  () => currentAIChatId.value,
+  async (convId) => {
+    if (!convId) {
+      estimatedContextTokens.value = 0
+      return
+    }
+    try {
+      const result = await useAIService().estimateContextTokens(convId)
+      if (result.success) {
+        estimatedContextTokens.value = result.tokens
+      }
+    } catch {
+      estimatedContextTokens.value = 0
+    }
+  },
+  { immediate: true }
+)
+
 // 当前选中助手的预设问题
 const currentPresetQuestions = computed(() => {
   return assistantStore.selectedAssistant?.presetQuestions ?? []
@@ -109,18 +134,24 @@ const chatInputRef = ref<{
   fillInput: (content: string) => void
   openSkillSelector: () => void
 } | null>(null)
+const assistantUpgradeInfo = ref<AssistantUpgradeInfo | null>(null)
+const assistantUpgradeModalVisible = ref(false)
+const isUpgradingAssistant = ref(false)
+const isSkippingAssistantUpgrade = ref(false)
+
+const assistantBackupName = computed(() => {
+  const name = assistantUpgradeInfo.value?.name || t('ai.assistant.fallbackName')
+  return t('ai.assistant.upgrade.backupName', { name })
+})
 
 // QA 对
 const qaPairs = computed(() => groupMessagesToQAPairs(messages.value))
-
-// 截屏功能
-const conversationContentRef = ref<HTMLElement | null>(null)
 
 // 检查 LLM 配置
 async function checkLLMConfig() {
   isCheckingConfig.value = true
   try {
-    hasLLMConfig.value = await window.llmApi.hasConfig()
+    hasLLMConfig.value = await useLLMService().hasConfig()
   } catch (error) {
     console.error('检查 LLM 配置失败：', error)
     hasLLMConfig.value = false
@@ -176,7 +207,7 @@ function handleSwitchAssistant(id: string) {
     return
   }
   skillStore.activateSkill(null)
-  startNewConversation()
+  startNewAIChat()
 }
 
 async function handlePresetQuestion(question: string) {
@@ -208,6 +239,59 @@ function handleSkillActivated() {
   scrollToBottom(true)
 }
 
+async function checkAssistantUpgrade(): Promise<void> {
+  const info = await assistantStore.checkDefaultAssistantUpgrade(settingsStore.locale)
+  if (!info) return
+
+  assistantUpgradeInfo.value = info
+  assistantUpgradeModalVisible.value = true
+}
+
+async function handleAssistantUpgradeSkip(): Promise<void> {
+  const info = assistantUpgradeInfo.value
+  if (!info || isUpgradingAssistant.value || isSkippingAssistantUpgrade.value) return
+
+  isSkippingAssistantUpgrade.value = true
+  try {
+    const result = await assistantStore.skipAssistantUpgrade(info)
+    if (!result.success) {
+      toast.fail(t('ai.assistant.upgrade.skipFailed'), {
+        description: result.error || t('ai.assistant.toast.unknownError'),
+      })
+      return
+    }
+    assistantUpgradeModalVisible.value = false
+    assistantUpgradeInfo.value = null
+  } finally {
+    isSkippingAssistantUpgrade.value = false
+  }
+}
+
+async function handleAssistantUpgradeConfirm(): Promise<void> {
+  const info = assistantUpgradeInfo.value
+  if (!info || isUpgradingAssistant.value || isSkippingAssistantUpgrade.value) return
+
+  isUpgradingAssistant.value = true
+  try {
+    const backupName = assistantBackupName.value
+    const result = await assistantStore.upgradeAssistantWithBackup(info, backupName)
+    if (!result.success) {
+      toast.fail(t('ai.assistant.upgrade.failed'), {
+        description: result.error || t('ai.assistant.toast.unknownError'),
+      })
+      return
+    }
+
+    assistantUpgradeModalVisible.value = false
+    assistantUpgradeInfo.value = null
+    toast.success(t('ai.assistant.upgrade.success'), {
+      description: t('ai.assistant.upgrade.successDescription', { name: backupName }),
+    })
+  } finally {
+    isUpgradingAssistant.value = false
+  }
+}
+
 // 发送消息
 async function handleSend(payload: { content: string; mentionedMembers: MentionedMemberContext[] }) {
   const result = await sendMessage(payload.content, { mentionedMembers: payload.mentionedMembers })
@@ -221,6 +305,33 @@ async function handleSend(payload: { content: string; mentionedMembers: Mentione
   conversationListRef.value?.refresh()
 }
 
+async function handleEditMessage(payload: { messageId: string; content: string; overwriteSubsequent?: boolean }) {
+  const result = await editMessageAndRegenerate(payload.messageId, payload.content, {
+    overwriteSubsequent: payload.overwriteSubsequent,
+  })
+  if (!result.success) {
+    if (result.reason === 'busy') {
+      showRunningTaskToast()
+    }
+    return
+  }
+  scrollToBottom(true)
+  conversationListRef.value?.refresh()
+}
+
+async function handleForkAIChat(messageId: string) {
+  if (!currentAIChatId.value) return
+  try {
+    const forked = await useAIService().forkAIChat(currentAIChatId.value, messageId)
+    await loadAIChat(forked.id)
+    conversationListRef.value?.refresh()
+    scrollToBottom(true)
+    toast.success(t('ai.chat.fork.success'))
+  } catch (error) {
+    toast.fail(t('ai.chat.fork.failed'), { description: String(error) })
+  }
+}
+
 // 切换数据源面板
 function toggleSourcePanel() {
   isSourcePanelCollapsed.value = !isSourcePanelCollapsed.value
@@ -232,24 +343,24 @@ async function handleLoadMore() {
 }
 
 // 选择对话
-async function handleSelectConversation(convId: string) {
-  await loadConversation(convId)
+async function handleSelectAIChat(convId: string) {
+  await loadAIChat(convId)
   scrollToBottom(true)
 }
 
 // 创建新对话
-function handleCreateConversation() {
+function handleCreateAIChat() {
   if (isAIThinking.value) {
     showLockedActionToast()
     return
   }
-  startNewConversation()
+  startNewAIChat()
 }
 
 // 删除对话
-function handleDeleteConversation(convId: string) {
-  if (currentConversationId.value === convId) {
-    startNewConversation()
+function handleDeleteAIChat(convId: string) {
+  if (currentAIChatId.value === convId) {
+    startNewAIChat()
   }
 }
 
@@ -261,6 +372,12 @@ function handleStop() {
 // 初始化
 checkLLMConfig()
 updateMaxMessages()
+onMounted(() => void checkAssistantUpgrade())
+
+watch(
+  () => settingsStore.locale,
+  () => void checkAssistantUpgrade()
+)
 
 // 监听全局 AI 配置变化（从设置弹窗保存时触发）
 watch(
@@ -277,12 +394,11 @@ watch(
     <ConversationList
       ref="conversationListRef"
       :session-id="sessionId"
-      :active-id="currentConversationId"
+      :active-id="currentAIChatId"
       :disabled="isAIThinking"
-      class="h-full shrink-0"
-      @select="handleSelectConversation"
-      @create="handleCreateConversation"
-      @delete="handleDeleteConversation"
+      @select="handleSelectAIChat"
+      @create="handleCreateAIChat"
+      @delete="handleDeleteAIChat"
     />
 
     <!-- 右侧：对话区域（始终显示） -->
@@ -311,11 +427,11 @@ watch(
             :class="{ 'p-0!': messages.length === 0 && !isAIThinking }"
           >
             <div
-              ref="conversationContentRef"
               class="mx-auto max-w-3xl space-y-6"
               :class="{
                 'flex min-h-full flex-col justify-center px-4 pb-32 pt-4 space-y-0!':
                   messages.length === 0 && !isAIThinking,
+                'px-4': messages.length > 0 || isAIThinking,
               }"
             >
               <!-- 空状态 Hero 区域 -->
@@ -339,7 +455,7 @@ watch(
                     class="cursor-pointer pr-7 text-center text-sm leading-relaxed text-gray-500 transition-colors hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 line-clamp-2"
                     @click="handleConfigureAssistant(assistantStore.selectedAssistant!.id)"
                   >
-                    <UTooltip :text="t('ai.assistant.systemPrompt', '系统设定')" :popper="{ placement: 'top' }">
+                    <UTooltip :text="t('ai.assistant.config.systemPrompt', '系统设定')" :popper="{ placement: 'top' }">
                       {{ welcomeInfo.preview }}
                     </UTooltip>
                   </p>
@@ -364,27 +480,28 @@ watch(
                 </div>
               </div>
 
-              <!-- 对话截屏按钮 -->
-              <div v-if="qaPairs.length > 0 && !isAIThinking" class="flex justify-end">
-                <CaptureButton
-                  :label="t('ai.chat.capture')"
-                  size="xs"
-                  type="element"
-                  :target-element="conversationContentRef"
-                />
-              </div>
-
               <!-- QA 对渲染 -->
               <template v-for="pair in qaPairs" :key="pair.id">
-                <div class="qa-pair space-y-6 pb-4">
+                <!-- 独立消息（summary 等非 user/assistant） -->
+                <ChatMessage
+                  v-if="pair.standalone"
+                  :role="pair.standalone.role"
+                  :content="pair.standalone.content"
+                  :timestamp="pair.standalone.timestamp"
+                />
+                <!-- QA 对 -->
+                <div v-else class="qa-pair space-y-6 pb-4">
                   <!-- 用户问题 -->
                   <ChatMessage
                     v-if="pair.user && (pair.user.role === 'user' || pair.user.content)"
                     :role="pair.user.role"
+                    :message-id="pair.user.id"
                     :content="pair.user.content"
                     :timestamp="pair.user.timestamp"
                     :is-streaming="pair.user.isStreaming"
                     :content-blocks="pair.user.contentBlocks"
+                    :editable="!isAIThinking"
+                    @edit="handleEditMessage"
                   />
                   <!-- AI 回复 -->
                   <ChatMessage
@@ -394,11 +511,13 @@ watch(
                         (pair.assistant.contentBlocks && pair.assistant.contentBlocks.length > 0))
                     "
                     :role="pair.assistant.role"
+                    :message-id="pair.assistant.id"
                     :content="pair.assistant.content"
                     :timestamp="pair.assistant.timestamp"
                     :is-streaming="pair.assistant.isStreaming"
                     :content-blocks="pair.assistant.contentBlocks"
                     :show-capture-button="!pair.assistant.isStreaming"
+                    @fork="handleForkAIChat"
                   />
                 </div>
               </template>
@@ -412,6 +531,7 @@ watch(
                 "
                 :current-tool-status="currentToolStatus"
                 :tools-used="toolsUsedInCurrentRound"
+                :agent-status="agentStatus"
               />
             </div>
           </div>
@@ -430,7 +550,7 @@ watch(
 
           <!-- 预设问题气泡（仅在对话为空时显示） -->
           <div v-if="messages.length === 0 && !isAIThinking" class="px-4 pb-2">
-            <div class="mx-auto max-w-3xl">
+            <div class="mx-auto max-w-[740px]">
               <PresetQuestions
                 :questions="currentPresetQuestions"
                 :leading-action-label="t('ai.chat.input.useSkill')"
@@ -443,7 +563,7 @@ watch(
 
           <!-- 输入框区域 -->
           <div class="px-4 pb-2">
-            <div class="mx-auto max-w-3xl">
+            <div class="mx-auto max-w-[740px]">
               <AIChatInput
                 ref="chatInputRef"
                 :session-id="sessionId"
@@ -460,7 +580,10 @@ watch(
               <ChatStatusBar
                 :session-token-usage="sessionTokenUsage"
                 :agent-status="agentStatus"
-                :current-conversation-id="currentConversationId"
+                :current-ai-chat-id="currentAIChatId"
+                :current-messages="messages"
+                :fallback-title="sessionName"
+                :estimated-context-tokens="estimatedContextTokens"
               />
             </div>
           </div>
@@ -471,7 +594,7 @@ watch(
       <Transition name="slide-fade">
         <div
           v-if="sourceMessages.length > 0 && !isSourcePanelCollapsed"
-          class="w-80 shrink-0 border-l border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-900/50"
+          class="w-80 shrink-0 border-l border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-page-dark/50"
         >
           <DataSourcePanel
             :messages="sourceMessages"
@@ -495,6 +618,15 @@ watch(
       @update:open="handleConfigModalOpenUpdate"
       @saved="handleAssistantConfigSaved"
       @created="handleAssistantCreated"
+    />
+
+    <AssistantUpgradeModal
+      :open="assistantUpgradeModalVisible"
+      :backup-name="assistantBackupName"
+      :upgrading="isUpgradingAssistant"
+      :skipping="isSkippingAssistantUpgrade"
+      @skip="handleAssistantUpgradeSkip"
+      @confirm="handleAssistantUpgradeConfirm"
     />
 
     <!-- 助手管理弹窗 -->

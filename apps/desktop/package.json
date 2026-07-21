@@ -1,0 +1,49 @@
+{
+  "name": "@openchatlab/desktop",
+  "version": "0.0.0",
+  "productName": "ChatLab",
+  "private": true,
+  "description": "ChatLab Desktop — Electron 桌面客户端",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "ensure-native": "node scripts/ensure-native.mjs",
+    "restore-node-abi": "node scripts/restore-node-abi.mjs",
+    "dev": "node scripts/ensure-native.mjs && electron-vite dev",
+    "preview": "node scripts/ensure-native.mjs && electron-vite preview",
+    "build": "electron-vite build",
+    "build:mac": "node scripts/ensure-native.mjs && pnpm run build && node scripts/build-app.mjs --mac",
+    "build:win": "node scripts/ensure-native.mjs && pnpm run build && node scripts/build-app.mjs --win"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@fastify/multipart": "^10.0.0",
+    "@huggingface/transformers": "^4.2.0",
+    "@node-rs/jieba": "^2.0.1",
+    "@openchatlab/parser-native": "workspace:*",
+    "better-sqlite3": "^12.4.6",
+    "electron-updater": "^6.6.2",
+    "i18next": "^25.8.5",
+    "onnxruntime-common": "1.24.3",
+    "onnxruntime-node": "1.24.3",
+    "sharp": "0.34.5",
+    "sqlite-vec": "^0.1.9",
+    "undici": "^6.25.0"
+  },
+  "devDependencies": {
+    "@openchatlab/config": "workspace:*",
+    "@openchatlab/core": "workspace:*",
+    "@openchatlab/http-routes": "workspace:*",
+    "@openchatlab/node-runtime": "workspace:*",
+    "@openchatlab/parser": "workspace:*",
+    "@openchatlab/shared-types": "workspace:*",
+    "@openchatlab/sync": "workspace:*",
+    "@openchatlab/tools": "workspace:*",
+    "@electron-toolkit/tsconfig": "^1.0.1",
+    "@electron/rebuild": "^4.0.4",
+    "@types/better-sqlite3": "^7.6.13",
+    "electron": "35.7.5",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^5.0.0"
+  }
+}

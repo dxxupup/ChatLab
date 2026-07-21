@@ -6,7 +6,7 @@ outline: deep
 
 ChatLab 專注於對已匯出數據的分析，我們不提供抓取數據的功能。您需要先使用官方功能或開源社群的第三方工具，將聊天記錄匯出後，再匯入 ChatLab 進行分析。
 
-Tips：歡迎訪問 [加入社群](/cn/other/community.html)，討論問題以及溝通需求。
+Tips：歡迎訪問 [加入社群](https://chatlab.fun/tw/other/community)，討論問題以及溝通需求。
 
 ## WhatsApp
 
@@ -56,9 +56,29 @@ Tips：歡迎訪問 [加入社群](/cn/other/community.html)，討論問題以�
 
 ## iMessage
 
-計劃相容 https://github.com/ReagentX/imessage-exporter 該項目匯出的 json 格式
+對於 iMessage，目前 **imessage-chatlab** 已適配 ChatLab 標準 JSON 格式。
 
-不過目前開發者沒有數據樣本用來測試，如果您有迫切的需求，歡迎提供脫敏後的數據樣本，我會第一時間支援。
+- **項目地址**：[https://github.com/gamesme/imessage-chatlab](https://github.com/gamesme/imessage-chatlab)
+- **支援平台**：macOS
+- **安裝方式**：如果已安裝 Rust 工具鏈，可以執行 `cargo install imessage-chatlab`；也可以依照項目 README 從源碼安裝。
+- **匯出方式**：參考項目 README。例如可執行 `imessage-chatlab -c clone -o ~/imessage_chatlab_export` 匯出本機 iMessage 數據。
+- **格式**：工具會按會話匯出 ChatLab 標準 JSON 檔案，將匯出的 `.json` 檔案拖入 ChatLab 即可。
+- **提示**：該工具會讀取 macOS 本機 Messages 資料庫。使用前請仔細閱讀項目文件，並確認您擁有讀取與分析相關聊天記錄的合法權限。
+
+## Google Chat
+
+對於 Google Chat，目前已適配 Google 官方 Takeout 匯出的 ZIP 格式。
+
+- **匯出方式**：
+  1. 前往 [Google Takeout](https://takeout.google.com/)，以您的 Google 帳號登入。
+  2. 點擊「取消全選」，再單獨勾選 **Google Chat**（可縮小匯出體積）。
+  3. 選擇檔案類型為 **.zip**（暫不支援 .tgz 格式）。
+  4. 點擊「建立匯出」，等待 Google 處理完成後下載（系統會寄送電子郵件通知）。
+- **格式**：將下載的 `.zip` 檔案直接拖入 ChatLab，ChatLab 會掃描壓縮包內所有對話並顯示選擇清單，勾選後逐一匯入即可。
+- **提示**：
+  - 僅支援 ZIP 格式，若 Takeout 提供的是 .tgz，請重新匯出時選擇 .zip。
+  - 首次匯出請求可能需要等候數小時。
+  - 附件（圖片、檔案等）目前不會隨聊天記錄一併匯入。
 
 ## Q&A：飛書/企微/千牛等的聊天記錄能分析嗎？
 
@@ -66,9 +86,9 @@ Tips：歡迎訪問 [加入社群](/cn/other/community.html)，討論問題以�
 
 ChatLab 的功能是 **對已匯出的固定文本格式的聊天記錄進行分析**，但前提是**您已經透過合法合規的管道匯出了聊天記錄**。
 
-如果您有一定的技術基礎，可以嘗試使用 **AI 輔助轉換** 的方式，將您的數據轉換為標準格式。詳情請查看 [AI 輔助轉換指南](/cn/standard/ai-converter.html)。
+如果您有一定的技術基礎，可以嘗試使用 **AI 輔助轉換** 的方式，將您的數據轉換為標準格式。詳情請查看 [AI 輔助轉換指南](/tw/standard/ai-converter)。
 
-此外，如果您是開發者，並已支援了其他聊天應用的聊天記錄匯出，歡迎[相容 ChatLab 格式](/cn/standard/chatlab-format.html)，我會將您的 Github 連結加到這裡。
+此外，如果您是開發者，並已支援了其他聊天應用的聊天記錄匯出，歡迎[相容 ChatLab 格式](/tw/standard/chatlab-format)，我會將您的 Github 連結加到這裡。
 
 ## ⚠️ 法律與安全聲明
 

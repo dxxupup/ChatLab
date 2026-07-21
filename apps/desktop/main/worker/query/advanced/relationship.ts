@@ -1,0 +1,42 @@
+/**
+ * 关系分析模块（委托给 @openchatlab/core）
+ */
+
+import { openDatabaseAdapter, type TimeFilter } from '../../core'
+import { getRelationshipStats as coreGetRelationshipStats } from '@openchatlab/core'
+import type {
+  RelationshipStats,
+  RelationshipMonthStats,
+  IceBreakerItem,
+  ResponseLatencyMember,
+  PerseveranceMember,
+  RelationshipOptions,
+} from '@openchatlab/core'
+
+export type { RelationshipStats, RelationshipMonthStats, IceBreakerItem, ResponseLatencyMember, PerseveranceMember }
+
+export function getRelationshipStats(
+  sessionId: string,
+  filter?: TimeFilter,
+  options?: RelationshipOptions
+): RelationshipStats {
+  const db = openDatabaseAdapter(sessionId)
+  if (!db) {
+    const perseveranceThreshold = options?.perseveranceThreshold ?? 300
+    return {
+      months: [],
+      members: [],
+      totalSessions: 0,
+      hasSessionIndex: false,
+      iceBreakers: [],
+      totalIceBreaks: 0,
+      responseLatency: [],
+      perseverance: [],
+      totalDoubleTexts: 0,
+      monthlyResponseLatency: [],
+      monthlyPerseverance: [],
+      perseveranceThreshold,
+    }
+  }
+  return coreGetRelationshipStats(db, filter, options)
+}

@@ -4,11 +4,19 @@
  */
 import { ref } from 'vue'
 import { captureAsImageData } from '@/utils/snapCapture'
+import {
+  restoreCapturePadding,
+  resolveCaptureBoxSizing,
+  snapshotCapturePadding,
+  waitForCaptureLayoutStabilization,
+} from '@/utils/captureLayout'
 import { useToast } from '@/composables/useToast'
 import { useLayoutStore } from '@/stores/layout'
+import { usePlatformService } from '@/services'
+import { useCacheService } from '@/services/cache/service'
 
-/** 默认移动端最大宽度 */
-const DEFAULT_MOBILE_MAX_WIDTH = 525
+const CAPTURE_FRAME_HORIZONTAL_PADDING = 40
+const CAPTURE_FRAME_VERTICAL_PADDING = 16
 
 export interface ScreenCaptureOptions {
   /** 截屏时要隐藏的元素选择器列表 */
@@ -20,12 +28,16 @@ export interface ScreenCaptureOptions {
   /** 是否捕获完整的可滚动内容（默认 true） */
   fullContent?: boolean
   /**
-   * 移动端适配宽度，设置后会临时改变元素宽度以适配移动端布局
-   * - 传入数字：使用指定宽度
-   * - 传入 true：使用默认值 525px（自动适配，仅当原始宽度超过时才缩放）
-   * - 传入 false 或不传：不进行移动端适配
+   * 渐进式缩窄，设置后会临时收窄截图元素
+   * - 传入数字：使用指定的基准宽度
+   * - 传入 true：使用默认基准宽度 525px（仅当原始宽度超过时才缩窄）
+   * - 传入 false 或不传：不进行缩窄
    */
-  mobileWidth?: number | boolean
+  progressiveNarrowing?: number | boolean
+  /** 是否为截图增加外框留白；留白不会额外压缩内容宽度 */
+  captureFrame?: boolean
+  /** 是否应用 Markdown 列表渲染兼容修复（仅截取 Markdown 内容时需要，默认 false） */
+  markdownFix?: boolean
 }
 
 /**
@@ -48,7 +60,7 @@ export function useScreenCapture() {
     const filename = `chatlab-screenshot-${timestamp}.png`
 
     try {
-      const result = await window.cacheApi.saveToDownloads(filename, imageData)
+      const result = await useCacheService().saveToDownloads(filename, imageData)
       if (result.success) {
         toast.add({
           title: '截图已保存',
@@ -58,7 +70,7 @@ export function useScreenCapture() {
             {
               label: '打开目录',
               onClick: () => {
-                window.cacheApi.openDir('downloads')
+                useCacheService().openDir('downloads')
               },
             },
           ],
@@ -129,41 +141,36 @@ export function useScreenCapture() {
     isCapturing.value = true
     captureError.value = null
 
-    // 临时给元素添加边距和 position: relative（用于水印定位）
-    const originalPadding = element.style.padding
-    const originalPaddingBottom = element.style.paddingBottom
+    // 截图外框只由显式选项开启，普通卡片截图不改变原布局。
+    const originalPadding = snapshotCapturePadding(element.style, options?.captureFrame === true)
+    const originalBoxSizing = element.style.boxSizing
     const originalPosition = element.style.position
     const originalWidth = element.style.width
     const originalMinWidth = element.style.minWidth
     const originalMaxWidth = element.style.maxWidth
 
-    element.style.padding = '16px'
+    const currentWidth = element.getBoundingClientRect().width
+    const captureBoxSizing = resolveCaptureBoxSizing({
+      currentWidth,
+      progressiveNarrowing: options?.progressiveNarrowing,
+      frameHorizontalPadding: options?.captureFrame ? CAPTURE_FRAME_HORIZONTAL_PADDING : 0,
+    })
+
+    if (options?.captureFrame) {
+      element.style.padding = `${CAPTURE_FRAME_VERTICAL_PADDING}px ${CAPTURE_FRAME_HORIZONTAL_PADDING}px`
+    }
     element.style.paddingBottom = '48px' // 为水印留出空间
     const computedPosition = window.getComputedStyle(element).position
     if (computedPosition === 'static') {
       element.style.position = 'relative'
     }
 
-    // 移动端宽度适配（渐进式缩放）
-    let appliedMobileWidth = false
-    if (options?.mobileWidth) {
-      const baseWidth = typeof options.mobileWidth === 'number' ? options.mobileWidth : DEFAULT_MOBILE_MAX_WIDTH
-
-      // 获取元素当前的实际宽度
-      const currentWidth = element.getBoundingClientRect().width
-
-      // 只有当原始宽度大于基准宽度时才缩放
-      if (currentWidth > baseWidth) {
-        // 渐进式缩放：目标宽度 = 基准宽度 + (原始宽度 - 基准宽度) × 缩放因子
-        // 缩放因子 0.3 表示超出部分保留 30%
-        const scaleFactor = 0.3
-        const targetWidth = Math.round(baseWidth + (currentWidth - baseWidth) * scaleFactor)
-
-        element.style.width = `${targetWidth}px`
-        element.style.minWidth = `${targetWidth}px`
-        element.style.maxWidth = `${targetWidth}px`
-        appliedMobileWidth = true
-      }
+    // 外框使用额外的根元素宽度承载，避免 40px 横向留白再次压缩正文和图表。
+    if (options?.captureFrame || captureBoxSizing.didChangeContentWidth) {
+      element.style.boxSizing = 'border-box'
+      element.style.width = `${captureBoxSizing.outerWidth}px`
+      element.style.minWidth = `${captureBoxSizing.outerWidth}px`
+      element.style.maxWidth = `${captureBoxSizing.outerWidth}px`
     }
 
     // 添加底部水印标识（绝对定位）
@@ -323,8 +330,7 @@ export function useScreenCapture() {
     })
 
     // 修复 Markdown 列表元素在 @zumer/snapdom 中的渲染问题
-    // BUG: @zumer/snapdom 在处理 <ol>/<ul> 的 list-style 时会产生额外的黑色边框和位置偏移
-    // 解决方案：临时移除 list-style，手动添加数字/圆点作为文本前缀
+    // 仅在显式启用 markdownFix 时应用，避免影响自定义列表样式（如 Changelog 圆点）
     const listElements: {
       el: HTMLElement
       originalStyles: {
@@ -337,45 +343,47 @@ export function useScreenCapture() {
       }
       addedPrefixes: HTMLSpanElement[]
     }[] = []
-    const lists = element.querySelectorAll('ol, ul')
-    lists.forEach((list) => {
-      const htmlEl = list as HTMLElement
-      const isOrdered = htmlEl.tagName.toLowerCase() === 'ol'
-      const addedPrefixes: HTMLSpanElement[] = []
+    if (options?.markdownFix) {
+      const lists = element.querySelectorAll('ol, ul')
+      lists.forEach((list) => {
+        const htmlEl = list as HTMLElement
+        const isOrdered = htmlEl.tagName.toLowerCase() === 'ol'
+        const addedPrefixes: HTMLSpanElement[] = []
 
-      listElements.push({
-        el: htmlEl,
-        originalStyles: {
-          listStyleType: htmlEl.style.listStyleType,
-          paddingLeft: htmlEl.style.paddingLeft,
-          marginLeft: htmlEl.style.marginLeft,
-          border: htmlEl.style.border,
-          outline: htmlEl.style.outline,
-          boxShadow: htmlEl.style.boxShadow,
-        },
-        addedPrefixes,
+        listElements.push({
+          el: htmlEl,
+          originalStyles: {
+            listStyleType: htmlEl.style.listStyleType,
+            paddingLeft: htmlEl.style.paddingLeft,
+            marginLeft: htmlEl.style.marginLeft,
+            border: htmlEl.style.border,
+            outline: htmlEl.style.outline,
+            boxShadow: htmlEl.style.boxShadow,
+          },
+          addedPrefixes,
+        })
+
+        // 移除列表样式以避免 @zumer/snapdom 渲染问题
+        htmlEl.style.listStyleType = 'none'
+        htmlEl.style.paddingLeft = '0'
+        htmlEl.style.marginLeft = '0'
+        // 移除边框以修复 @zumer/snapdom 的黑色边框 bug
+        htmlEl.style.border = 'none'
+        htmlEl.style.outline = 'none'
+        htmlEl.style.boxShadow = 'none'
+
+        // 为每个 li 添加手动前缀
+        const lis = htmlEl.querySelectorAll(':scope > li')
+        lis.forEach((li, index) => {
+          const prefix = document.createElement('span')
+          prefix.className = '__screen-capture-list-prefix__'
+          prefix.style.cssText = 'display: inline-block; min-width: 1.5em; margin-right: 0.25em; text-align: right;'
+          prefix.textContent = isOrdered ? `${index + 1}.` : '•'
+          li.insertBefore(prefix, li.firstChild)
+          addedPrefixes.push(prefix)
+        })
       })
-
-      // 移除列表样式以避免 @zumer/snapdom 渲染问题
-      htmlEl.style.listStyleType = 'none'
-      htmlEl.style.paddingLeft = '0'
-      htmlEl.style.marginLeft = '0'
-      // 移除边框以修复 @zumer/snapdom 的黑色边框 bug
-      htmlEl.style.border = 'none'
-      htmlEl.style.outline = 'none'
-      htmlEl.style.boxShadow = 'none'
-
-      // 为每个 li 添加手动前缀
-      const lis = htmlEl.querySelectorAll(':scope > li')
-      lis.forEach((li, index) => {
-        const prefix = document.createElement('span')
-        prefix.className = '__screen-capture-list-prefix__'
-        prefix.style.cssText = 'display: inline-block; min-width: 1.5em; margin-right: 0.25em; text-align: right;'
-        prefix.textContent = isOrdered ? `${index + 1}.` : '•'
-        li.insertBefore(prefix, li.firstChild)
-        addedPrefixes.push(prefix)
-      })
-    })
+    }
 
     // 清理可能导致 URI malformed 错误的特殊字符（孤立的 Unicode 代理对）
     const textNodesBackup: { node: Text; originalText: string }[] = []
@@ -397,14 +405,7 @@ export function useScreenCapture() {
     }
 
     try {
-      // 如果应用了移动端宽度，等待 DOM 重新布局
-      if (appliedMobileWidth) {
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => resolve())
-          })
-        })
-      }
+      await waitForCaptureLayoutStabilization({ resizeCharts: captureBoxSizing.didChangeContentWidth })
 
       const imageData = await captureAsImageData(element, {
         maxExportWidth: options?.maxExportWidth,
@@ -413,7 +414,7 @@ export function useScreenCapture() {
       })
 
       // 自动复制到剪贴板
-      const copyResult = await window.api.clipboard.copyImage(imageData)
+      const copyResult = await usePlatformService().copyImageToClipboard(imageData)
 
       if (copyResult.success) {
         // 显示成功 Toast（包含预览和下载按钮）
@@ -442,8 +443,8 @@ export function useScreenCapture() {
       watermark.remove()
 
       // 恢复元素样式
-      element.style.padding = originalPadding
-      element.style.paddingBottom = originalPaddingBottom
+      restoreCapturePadding(element.style, originalPadding)
+      element.style.boxSizing = originalBoxSizing
       element.style.position = originalPosition
       element.style.width = originalWidth
       element.style.minWidth = originalMinWidth
@@ -487,6 +488,7 @@ export function useScreenCapture() {
       for (const el of hiddenElements) {
         el.classList.remove('__capture-hidden__')
       }
+      await waitForCaptureLayoutStabilization({ resizeCharts: captureBoxSizing.didChangeContentWidth })
       isCapturing.value = false
     }
   }

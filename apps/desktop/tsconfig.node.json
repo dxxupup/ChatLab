@@ -1,0 +1,33 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": [
+    "electron.vite.config.*",
+    "../../vite.icon-bundle.config.ts",
+    "main/**/*",
+    "preload/**/*",
+    "shared/**/*",
+    "../../src/types/**/*",
+    "../../packages/shared-types/**/*",
+    "../../packages/core/**/*",
+    "../../packages/node-runtime/**/*",
+    "../../packages/config/**/*",
+    "../../packages/parser/**/*",
+    "../../packages/mcp-server/**/*",
+    "../../apps/cli/**/*",
+    "../../packages/tools/**/*",
+    "../../packages/sync/**/*",
+    "../../packages/http-routes/**/*"
+  ],
+  "exclude": ["**/node_modules/**", "**/dist/**", "../../**/*.test.ts", "../../**/*.spec.ts", "../../tests/**"],
+  "compilerOptions": {
+    "composite": true,
+    "types": ["electron-vite/node"],
+    "moduleResolution": "bundler",
+    "paths": {
+      "@/*": ["../../src/*"],
+      "@electron/*": ["./*"],
+      "@openchatlab/*": ["../../packages/*"],
+      "chatlab-mcp": ["../../packages/mcp-server/src"]
+    }
+  }
+}

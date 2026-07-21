@@ -1,0 +1,158 @@
+/**
+ * ChatLab HTTP API — Error codes and factory functions
+ *
+ * Platform-agnostic error handling shared by CLI Server and Electron Internal Server.
+ */
+
+import { DataDirCompatibilityError } from '@openchatlab/node-runtime/data-dir-compat'
+import { ImportInProgressError } from '@openchatlab/node-runtime/src/import/import-lock'
+
+export enum ApiErrorCode {
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  SESSION_NOT_FOUND = 'SESSION_NOT_FOUND',
+  INVALID_FORMAT = 'INVALID_FORMAT',
+  INVALID_PAYLOAD = 'INVALID_PAYLOAD',
+  SQL_READONLY_VIOLATION = 'SQL_READONLY_VIOLATION',
+  SQL_EXECUTION_ERROR = 'SQL_EXECUTION_ERROR',
+  EXPORT_TOO_LARGE = 'EXPORT_TOO_LARGE',
+  BODY_TOO_LARGE = 'BODY_TOO_LARGE',
+  IMPORT_IN_PROGRESS = 'IMPORT_IN_PROGRESS',
+  IDEMPOTENCY_CONFLICT = 'IDEMPOTENCY_CONFLICT',
+  IDEMPOTENCY_PENDING = 'IDEMPOTENCY_PENDING',
+  IMPORT_FAILED = 'IMPORT_FAILED',
+  DATA_DIR_INCOMPATIBLE = 'DATA_DIR_INCOMPATIBLE',
+  SERVER_ERROR = 'SERVER_ERROR',
+}
+
+const HTTP_STATUS: Record<ApiErrorCode, number> = {
+  [ApiErrorCode.UNAUTHORIZED]: 401,
+  [ApiErrorCode.SESSION_NOT_FOUND]: 404,
+  [ApiErrorCode.INVALID_FORMAT]: 400,
+  [ApiErrorCode.INVALID_PAYLOAD]: 400,
+  [ApiErrorCode.SQL_READONLY_VIOLATION]: 400,
+  [ApiErrorCode.SQL_EXECUTION_ERROR]: 400,
+  [ApiErrorCode.EXPORT_TOO_LARGE]: 400,
+  [ApiErrorCode.BODY_TOO_LARGE]: 413,
+  [ApiErrorCode.IMPORT_IN_PROGRESS]: 409,
+  [ApiErrorCode.IDEMPOTENCY_CONFLICT]: 409,
+  [ApiErrorCode.IDEMPOTENCY_PENDING]: 409,
+  [ApiErrorCode.IMPORT_FAILED]: 500,
+  [ApiErrorCode.DATA_DIR_INCOMPATIBLE]: 409,
+  [ApiErrorCode.SERVER_ERROR]: 500,
+}
+
+// REST response envelope version; independent from the ChatLab file format version.
+const API_RESPONSE_VERSION = '0.0.2'
+
+export class ApiError extends Error {
+  code: ApiErrorCode
+  statusCode: number
+
+  constructor(code: ApiErrorCode, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.code = code
+    this.statusCode = HTTP_STATUS[code]
+  }
+}
+
+export function unauthorized(message = 'Invalid or missing token'): ApiError {
+  return new ApiError(ApiErrorCode.UNAUTHORIZED, message)
+}
+
+export function sessionNotFound(id: string): ApiError {
+  return new ApiError(ApiErrorCode.SESSION_NOT_FOUND, `Session not found: ${id}`)
+}
+
+export function invalidFormat(message: string): ApiError {
+  return new ApiError(ApiErrorCode.INVALID_FORMAT, message)
+}
+
+export function invalidPayload(message: string): ApiError {
+  return new ApiError(ApiErrorCode.INVALID_PAYLOAD, message)
+}
+
+export function sqlReadonlyViolation(): ApiError {
+  return new ApiError(ApiErrorCode.SQL_READONLY_VIOLATION, 'Only SELECT queries are allowed')
+}
+
+export function sqlExecutionError(message: string): ApiError {
+  return new ApiError(ApiErrorCode.SQL_EXECUTION_ERROR, message)
+}
+
+export function exportTooLarge(count: number, limit: number): ApiError {
+  return new ApiError(
+    ApiErrorCode.EXPORT_TOO_LARGE,
+    `Message count ${count} exceeds export limit ${limit}. Use paginated /messages API instead.`
+  )
+}
+
+export function serverError(message = 'Internal server error'): ApiError {
+  return new ApiError(ApiErrorCode.SERVER_ERROR, message)
+}
+
+export function importInProgress(message = 'Another import is already in progress'): ApiError {
+  return new ApiError(ApiErrorCode.IMPORT_IN_PROGRESS, message)
+}
+
+export function idempotencyConflict(): ApiError {
+  return new ApiError(ApiErrorCode.IDEMPOTENCY_CONFLICT, 'Same Idempotency-Key with different request body hash')
+}
+
+export function idempotencyPending(): ApiError {
+  return new ApiError(
+    ApiErrorCode.IDEMPOTENCY_PENDING,
+    'A request with this Idempotency-Key is still in progress. Please retry later.'
+  )
+}
+
+export function importFailed(message: string): ApiError {
+  return new ApiError(ApiErrorCode.IMPORT_FAILED, message)
+}
+
+export function dataDirIncompatible(message: string): ApiError {
+  return new ApiError(ApiErrorCode.DATA_DIR_INCOMPATIBLE, message)
+}
+
+export function apiErrorFromUnknown(error: unknown): ApiError | null {
+  if (error instanceof ApiError) return error
+  if (error instanceof ImportInProgressError) return importInProgress()
+  const compatibilityError = findDataDirCompatibilityError(error)
+  if (compatibilityError) return dataDirIncompatible(compatibilityError.message)
+  return null
+}
+
+function findDataDirCompatibilityError(error: unknown): DataDirCompatibilityError | null {
+  const seen = new Set<unknown>()
+  let current = error
+
+  while (current instanceof Error && !seen.has(current)) {
+    if (current instanceof DataDirCompatibilityError) return current
+    seen.add(current)
+    current = current.cause
+  }
+
+  return null
+}
+
+export function successResponse<T>(data: T, meta?: Record<string, unknown>) {
+  return {
+    success: true as const,
+    data,
+    meta: {
+      timestamp: Math.floor(Date.now() / 1000),
+      version: API_RESPONSE_VERSION,
+      ...meta,
+    },
+  }
+}
+
+export function errorResponse(error: ApiError) {
+  return {
+    success: false as const,
+    error: {
+      code: error.code,
+      message: error.message,
+    },
+  }
+}

@@ -13,6 +13,8 @@ import { useSettingsStore } from '@/stores/settings'
 import { useLayoutStore } from '@/stores/layout'
 import { useWordFilterStore } from '@/stores/wordFilter'
 import { useToast } from '@/composables/useToast'
+import { get, post, analyticsPost } from '@/services/utils/http'
+import type { TimeFilter } from '@openchatlab/shared-types'
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
@@ -20,16 +22,19 @@ const layoutStore = useLayoutStore()
 const wordFilterStore = useWordFilterStore()
 const toast = useToast()
 
-interface TimeFilter {
-  startTs?: number
-  endTs?: number
-}
-
 interface PosTagInfo {
   tag: string
   name: string
   description: string
   meaningful: boolean
+}
+
+interface WordFreqResponse {
+  words: Array<{ word: string; count: number; percentage: number }>
+  totalWords: number
+  totalMessages: number
+  uniqueWords: number
+  posTagStats?: Array<{ tag: string; count: number }>
 }
 
 type PosFilterMode = 'all' | 'meaningful' | 'custom'
@@ -43,7 +48,8 @@ const props = defineProps<{
 }>()
 
 const isLoading = ref(false)
-const wordcloudData = ref<EChartWordcloudData>({ words: [] })
+// 完整词表：按最大档一次性获取并缓存，切换词数时本地切片，避免重复请求与重复分词
+const allWords = ref<WordFrequencyItem[]>([])
 const stats = ref({
   totalMessages: 0,
   totalWords: 0,
@@ -58,6 +64,19 @@ const sizeScale = ref(1.25)
 
 // 最大显示词数（默认 150）
 const maxWords = ref(150)
+
+// 词云展示数据：从完整词表按当前词数本地切片，并按子集重算占比（纯本地计算，不触发后端分词）
+const wordcloudData = computed<EChartWordcloudData>(() => {
+  const sliced = allWords.value.slice(0, maxWords.value)
+  const total = sliced.reduce((sum, w) => sum + w.count, 0)
+  return {
+    words: sliced.map((w) => ({
+      word: w.word,
+      count: w.count,
+      percentage: total > 0 ? Math.round((w.count / total) * 10000) / 100 : 0,
+    })),
+  }
+})
 
 // 词性过滤模式
 const posFilterMode = ref<PosFilterMode>('meaningful')
@@ -123,6 +142,7 @@ const dictList = ref<Array<{ id: string; label: string; locale: string; download
 const isDictDownloading = ref(false)
 const downloadingDictId = ref<string | null>(null)
 const showDictPromptModal = ref(false)
+const dictListInitialized = ref(false)
 const DICT_PROMPT_DISMISSED_KEY = 'chatlab_zhTW_dict_prompt_dismissed'
 
 const locale = computed(() => settingsStore.locale as 'zh-CN' | 'en-US' | 'zh-TW' | 'ja-JP')
@@ -141,7 +161,8 @@ const dictOptions = computed(() => {
 const hasAnyDict = computed(() => {
   return dictList.value.some((d) => d.downloaded)
 })
-const canAnalyzeWithoutDictBlocking = computed(() => !requiresChineseDict.value || hasAnyDict.value)
+// 非中文语言无需词典即可分析；中文语言在词典列表初始化后可用内置分词器兜底
+const isDictListReady = computed(() => !requiresChineseDict.value || dictListInitialized.value)
 
 const undownloadedDicts = computed(() => {
   return dictList.value.filter((d) => !d.downloaded)
@@ -149,7 +170,7 @@ const undownloadedDicts = computed(() => {
 
 async function refreshDictList() {
   try {
-    dictList.value = await window.nlpApi.getDictList()
+    dictList.value = await get('/nlp/dicts')
     // 繁体中文用户自动切换到 zh-TW（如已下载）
     if (isTraditionalChinese.value && selectedDictType.value === 'default') {
       const zhTW = dictList.value.find((d) => d.id === 'zh-TW')
@@ -164,6 +185,8 @@ async function refreshDictList() {
     }
   } catch (error) {
     console.error('Failed to get dict list:', error)
+  } finally {
+    dictListInitialized.value = true
   }
 }
 
@@ -171,7 +194,7 @@ async function handleDownloadDict(dictId: string) {
   isDictDownloading.value = true
   downloadingDictId.value = dictId
   try {
-    const result = await window.nlpApi.downloadDict(dictId)
+    const result = await post<{ success: boolean; error?: string }>(`/nlp/dicts/${dictId}/download`)
     if (result.success) {
       await refreshDictList()
       selectedDictType.value = dictId as DictType
@@ -216,6 +239,9 @@ const maxWordsOptions = [
   { label: '300', value: 300 },
 ]
 
+// 一次性获取的词数上限（取最大档）：切换词数时仅在本地切片，无需重新请求
+const MAX_WORDS = Math.max(...maxWordsOptions.map((o) => o.value))
+
 // 字体大小选项
 const sizeScaleOptions = computed(() => [
   { label: t('quotes.wordcloud.size.small'), value: 0.75 },
@@ -238,7 +264,7 @@ const posTagOptions = computed(() =>
 // 加载词性标签定义
 async function loadPosTagDefinitions() {
   try {
-    const tags = await window.nlpApi.getPosTags()
+    const tags = await get<PosTagInfo[]>('/nlp/pos-tags')
     posTagDefinitions.value = tags
     // 初始化自定义词性为有意义的词性
     customPosTags.value = tags.filter((t) => t.meaningful).map((t) => t.tag)
@@ -248,10 +274,12 @@ async function loadPosTagDefinitions() {
 }
 
 // 加载话题迷你词云数据（固定词性过滤）
+let topicMiniWordsRequestId = 0
 async function loadTopicMiniWords() {
-  if (!props.sessionId || !canAnalyzeWithoutDictBlocking.value) return
+  if (!props.sessionId || !isDictListReady.value) return
+  const requestId = ++topicMiniWordsRequestId
   try {
-    const result = await window.nlpApi.getWordFrequency({
+    const result = await analyticsPost<WordFreqResponse>('/nlp/word-frequency', {
       sessionId: props.sessionId,
       locale: locale.value,
       timeFilter: props.timeFilter ? { startTs: props.timeFilter.startTs, endTs: props.timeFilter.endTs } : undefined,
@@ -264,6 +292,7 @@ async function loadTopicMiniWords() {
       dictType: selectedDictType.value,
       excludeWords: currentExcludeWords.value.length > 0 ? [...currentExcludeWords.value] : undefined,
     })
+    if (requestId !== topicMiniWordsRequestId) return
     topicMiniWords.value = result.words.map((w) => ({
       word: w.word,
       count: w.count,
@@ -271,22 +300,25 @@ async function loadTopicMiniWords() {
     }))
   } catch (error) {
     console.error('加载话题迷你词云数据失败:', error)
+    if (requestId !== topicMiniWordsRequestId) return
     topicMiniWords.value = []
   }
 }
 
 // 加载词频数据
+let wordFrequencyRequestId = 0
 async function loadWordFrequency() {
-  if (!props.sessionId || !canAnalyzeWithoutDictBlocking.value) return
+  if (!props.sessionId || !isDictListReady.value) return
 
-  isLoading.value = true
+  const requestId = ++wordFrequencyRequestId
+  if (allWords.value.length === 0) isLoading.value = true
   try {
-    const result = await window.nlpApi.getWordFrequency({
+    const result = await analyticsPost<WordFreqResponse>('/nlp/word-frequency', {
       sessionId: props.sessionId,
       locale: locale.value,
       timeFilter: props.timeFilter ? { startTs: props.timeFilter.startTs, endTs: props.timeFilter.endTs } : undefined,
       memberId: selectedMemberId.value ?? undefined,
-      topN: maxWords.value,
+      topN: MAX_WORDS,
       minCount: 2,
       posFilterMode: posFilterMode.value,
       customPosTags: posFilterMode.value === 'custom' ? [...customPosTags.value] : undefined,
@@ -294,14 +326,13 @@ async function loadWordFrequency() {
       dictType: selectedDictType.value,
       excludeWords: currentExcludeWords.value.length > 0 ? [...currentExcludeWords.value] : undefined,
     })
+    if (requestId !== wordFrequencyRequestId) return
 
-    wordcloudData.value = {
-      words: result.words.map((w) => ({
-        word: w.word,
-        count: w.count,
-        percentage: w.percentage,
-      })),
-    }
+    allWords.value = result.words.map((w) => ({
+      word: w.word,
+      count: w.count,
+      percentage: w.percentage,
+    }))
 
     stats.value = {
       totalMessages: result.totalMessages,
@@ -319,31 +350,38 @@ async function loadWordFrequency() {
     }
   } catch (error) {
     console.error('加载词频数据失败:', error)
-    wordcloudData.value = { words: [] }
+    if (requestId !== wordFrequencyRequestId) return
+    allWords.value = []
   } finally {
-    isLoading.value = false
+    if (requestId === wordFrequencyRequestId) {
+      isLoading.value = false
+    }
   }
 }
 
-// 切换会话时重置用户筛选
+// 切换会话时重置筛选状态并清空词云数据，避免展示上一个会话的陈旧内容
 watch(
   () => props.sessionId,
   () => {
     selectedMemberId.value = null
+    allWords.value = []
+    topicMiniWords.value = []
+    stats.value = { totalMessages: 0, totalWords: 0, uniqueWords: 0 }
+    posTagStats.value = new Map()
   }
 )
 
-// 监听参数变化（词云主图）
+// 监听参数变化（词云主图）。注意：maxWords 不在此处——切换词数只做本地切片，不重新请求/分词。
 watch(
   () => [
     props.sessionId,
     props.timeFilter,
     selectedMemberId.value,
-    maxWords.value,
     posFilterMode.value,
     enableStopwords.value,
     selectedDictType.value,
     currentExcludeWords.value,
+    isDictListReady.value,
   ],
   () => {
     loadWordFrequency()
@@ -353,7 +391,14 @@ watch(
 
 // 监听参数变化（话题迷你词云：不受词性过滤/最大词数影响）
 watch(
-  () => [props.sessionId, props.timeFilter, selectedMemberId.value, selectedDictType.value, currentExcludeWords.value],
+  () => [
+    props.sessionId,
+    props.timeFilter,
+    selectedMemberId.value,
+    selectedDictType.value,
+    currentExcludeWords.value,
+    isDictListReady.value,
+  ],
   () => {
     loadTopicMiniWords()
   },
@@ -392,16 +437,18 @@ onMounted(async () => {
 
 <template>
   <div class="main-content mx-auto max-w-[920px] space-y-6 p-6">
-    <!-- 需要下载词库（全屏提示） -->
+    <!-- 中文词库可提升分词效果，但不能阻断后端 fallback 词云结果展示 -->
     <div
       v-if="requiresChineseDict && !hasAnyDict"
-      class="flex h-64 flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-gray-300 dark:border-gray-600"
+      class="flex flex-col gap-3 rounded-lg border border-primary-200 bg-primary-50/70 p-4 dark:border-primary-800 dark:bg-primary-950/30 sm:flex-row sm:items-center sm:justify-between"
     >
-      <UIcon name="i-heroicons-arrow-down-tray" class="text-4xl text-gray-400" />
-      <p class="text-sm text-gray-500 dark:text-gray-400">
-        {{ t('quotes.wordcloud.dict.needDownload') }}
-      </p>
-      <div class="flex gap-2">
+      <div class="flex min-w-0 items-start gap-3">
+        <UIcon name="i-heroicons-information-circle" class="mt-0.5 shrink-0 text-xl text-primary-500" />
+        <p class="min-w-0 text-sm text-primary-700 dark:text-primary-300">
+          {{ t('quotes.wordcloud.dict.needDownload') }}
+        </p>
+      </div>
+      <div class="flex shrink-0 flex-wrap gap-2">
         <UButton
           v-for="dict in dictList"
           :key="dict.id"
@@ -417,7 +464,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <template v-else>
+    <template v-if="isDictListReady">
       <div class="space-y-6">
         <LoadingState v-if="isLoading && topWords.length === 0" :text="t('quotes.wordcloud.loading')" class="py-8" />
 
@@ -452,7 +499,7 @@ onMounted(async () => {
                 <LoadingState
                   v-if="isLoading"
                   :text="t('quotes.wordcloud.loading')"
-                  class="absolute inset-0 z-10 rounded-lg bg-white/80 dark:bg-gray-900/80"
+                  class="absolute inset-0 z-10 rounded-lg bg-white/80 dark:bg-page-dark/80"
                 />
                 <div
                   v-else-if="topWords.length === 0"

@@ -1,16 +1,13 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
-  "include": [
-    "electron.vite.config.*",
-    "vite.config.*",
-    "electron/main/**/*",
-    "electron/preload/**/*",
-    "electron/shared/**/*",
-    "src/types/**/*"
-  ],
   "compilerOptions": {
     "composite": true,
-    "types": ["electron-vite/node"],
-    "moduleResolution": "bundler"
-  }
+    "moduleResolution": "bundler",
+    "paths": {
+      "@openchatlab/*": ["./packages/*"],
+      "chatlab-mcp": ["./packages/mcp-server/src"]
+    }
+  },
+  "include": ["apps/cli/src/**/*.ts", "packages/**/*.ts"],
+  "exclude": ["**/node_modules/**", "**/dist/**", "**/bin/**", "**/*.test.ts", "**/*.spec.ts"]
 }

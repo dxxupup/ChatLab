@@ -1,26 +1,37 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import LanguageSelectModal from './components/LanguageSelectModal.vue'
-import AgreementModal from './components/AgreementModal.vue'
+import { useSessionStore } from '@/stores/session'
+import { getChatlabSiteLocalePath } from '@/utils/chatlabSiteLocale'
+import logoSvg from '@/assets/images/logo.svg'
+import LanguageSelectModal from '@/components/home/LanguageSelectModal.vue'
+import AgreementModal from '@/components/home/AgreementModal.vue'
 import MigrationModal from './components/MigrationModal.vue'
-import ImportArea from './components/ImportArea.vue'
-import ChangelogModal from './components/ChangelogModal.vue'
-import HomeFooter from './components/HomeFooter.vue'
+import ImportArea from '@/components/import/ImportArea.vue'
+import ImportTabSelector from './components/import/ImportTabSelector.vue'
+import ApiImportCard from './components/import/ApiImportCard.vue'
+import CliImportCard from './components/import/CliImportCard.vue'
+import ChangelogModal from '@/components/home/ChangelogModal.vue'
+import HomeFooter from '@/components/home/HomeFooter.vue'
+import DemoImportButton from './components/DemoImportButton.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const sessionStore = useSessionStore()
+
+// 导入方式选中的 Tab 状态
+const activeTab = ref<'file' | 'api' | 'cli'>('file')
+
+// 首页入场动效：挂载后通过 requestAnimationFrame 触发，确保初始透明态已完成渲染
+const isMounted = ref(false)
+onMounted(() => {
+  requestAnimationFrame(() => {
+    isMounted.value = true
+  })
+})
 
 // 弹窗引用
-const languageSelectRef = ref<InstanceType<typeof LanguageSelectModal> | null>(null)
 const changelogModalRef = ref<InstanceType<typeof ChangelogModal> | null>(null)
 const agreementModalRef = ref<InstanceType<typeof AgreementModal> | null>(null)
-
-onMounted(() => {
-  // 已有语言设置（非首次用户）→ 直接检查协议
-  if (languageSelectRef.value?.wasSkipped() && agreementModalRef.value?.needsAgreement()) {
-    agreementModalRef.value.open()
-  }
-})
 
 // 语言选择完成后，检查是否需要显示协议弹窗
 function onLanguageSelectDone() {
@@ -39,20 +50,14 @@ function openTerms() {
   agreementModalRef.value?.open()
 }
 
-const features = computed(() => [
-  {
-    title: t('home.features.privacy.title'),
-    color: 'text-pink-500',
-  },
-  {
-    title: t('home.features.analysis.title'),
-    color: 'text-pink-500',
-  },
-  {
-    title: t('home.features.ai.title'),
-    color: 'text-pink-500',
-  },
-])
+// 三个导入 Tab 共用的底部入口按钮
+const showDemoButton = computed(() => sessionStore.sessions.length === 0)
+
+const tutorialExportUrl = computed(() => {
+  const localePath = getChatlabSiteLocalePath(locale.value)
+  const langPath = localePath === 'cn' || localePath === 'tw' ? `/${localePath}/` : '/'
+  return `https://docs.chatlab.fun${langPath}`
+})
 </script>
 
 <template>
@@ -63,45 +68,56 @@ const features = computed(() => [
     <div class="relative h-full w-full overflow-y-auto">
       <div class="flex min-h-full w-full flex-col items-center justify-center px-4 py-12">
         <!-- Hero Section -->
-        <div class="relative xl:mb-6 mb-4 w-full text-center">
-          <!-- Title -->
-          <h1 class="mb-4 select-none text-5xl sm:text-5xl lg:text-6xl font-black tracking-tight text-pink-500">
-            {{ t('home.title') }}
+        <div
+          class="relative xl:mb-6 mb-4 flex items-center justify-center gap-4 select-none transition-all duration-700 ease-out"
+          :class="isMounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'"
+        >
+          <img :src="logoSvg" alt="ChatLab" class="h-10 w-10 select-none pointer-events-none" />
+          <h1 class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white leading-none">
+            {{ t('home.tagline') }}
           </h1>
-          <!-- Description -->
-          <div class="relative select-none inline-block mb-8">
-            <p class="text-lg sm:text-5xl text-gray-700 dark:text-gray-400 font-medium">{{ t('home.subtitle') }}</p>
-          </div>
         </div>
 
-        <!-- Feature Text -->
-        <div class="xl:mb-16 mb-12 flex flex-wrap items-center justify-center gap-x-8 gap-y-4 px-4">
-          <template v-for="feature in features" :key="feature.title">
-            <div class="group flex items-center gap-2 cursor-default">
-              <UIcon
-                name="i-heroicons-check-circle"
-                class="h-5 w-5 transition-all duration-500 group-hover:scale-110 group-hover:drop-shadow-md"
-                :class="feature.color"
-              />
-              <span
-                class="text-sm sm:text-base font-medium tracking-tight text-gray-600 dark:text-gray-300 transition-colors duration-300 group-hover:text-gray-900 dark:group-hover:text-white"
-              >
-                {{ feature.title }}
-              </span>
-            </div>
-          </template>
+        <!-- 导入方式切换栏 -->
+        <div
+          class="mb-6 transition-all duration-700 ease-out delay-100"
+          :class="isMounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'"
+        >
+          <ImportTabSelector v-model="activeTab" />
         </div>
 
-        <!-- Import Area -->
-        <ImportArea />
+        <!-- 内容区域：根据 Tab 条件渲染，整体包裹在入场动效容器中 -->
+        <div
+          class="w-full transition-all duration-700 ease-out delay-200"
+          :class="isMounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'"
+        >
+          <!-- 文件导入区域 -->
+          <ImportArea v-if="activeTab === 'file'" :backend-features="true" />
+
+          <!-- API 导入区域：统一承载自动拉取与 API 推送 -->
+          <ApiImportCard v-else-if="activeTab === 'api'" />
+
+          <!-- CLI 导入区域：Agent Skill 与手动 CLI -->
+          <CliImportCard v-else-if="activeTab === 'cli'" />
+        </div>
+
+        <div
+          class="mt-6 flex items-center gap-3 transition-all duration-700 ease-out delay-300"
+          :class="isMounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'"
+        >
+          <DemoImportButton v-if="showDemoButton" />
+          <UButton :href="tutorialExportUrl" target="_blank" trailing-icon="i-heroicons-chevron-right-20-solid">
+            {{ t('home.quickStart.export') }}
+          </UButton>
+        </div>
       </div>
 
       <!-- Footer - 固定在底部 -->
-      <HomeFooter @open-changelog="openChangelog" @open-terms="openTerms" />
+      <HomeFooter :remote-config-enabled="true" @open-changelog="openChangelog" @open-terms="openTerms" />
     </div>
 
     <!-- 新用户语言选择弹窗 -->
-    <LanguageSelectModal ref="languageSelectRef" @done="onLanguageSelectDone" />
+    <LanguageSelectModal @done="onLanguageSelectDone" />
 
     <!-- 用户协议弹窗 -->
     <AgreementModal ref="agreementModalRef" />

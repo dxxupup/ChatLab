@@ -3,52 +3,58 @@ import { useI18n } from 'vue-i18n'
 import type { AnalysisSession, MessageType } from '@/types/base'
 import type { HourlyActivity, DailyActivity, WeekdayActivity } from '@/types/analysis'
 import dayjs from 'dayjs'
+import {
+  getOverviewDurationDays,
+  hasOverviewTimeFilter,
+  resolveOverviewTimeRange,
+  type OverviewTimeFilter,
+  type OverviewTimeRange,
+} from './overviewTimeRange'
 
 export interface UseOverviewStatisticsProps {
   session: AnalysisSession
   messageTypes: Array<{ type: MessageType; count: number }>
   hourlyActivity: HourlyActivity[]
   dailyActivity: DailyActivity[]
-  timeRange: { start: number; end: number } | null
-  selectedYear: number | null
+  timeRange: OverviewTimeRange | null
   filteredMessageCount: number
   filteredMemberCount?: number
+  timeFilter?: OverviewTimeFilter
 }
 
 export function useOverviewStatistics(props: UseOverviewStatisticsProps, weekdayActivity: Ref<WeekdayActivity[]>) {
   const { t } = useI18n()
 
-  // 时间跨度
-  const durationDays = computed(() => {
-    if (props.selectedYear) {
-      const isLeapYear =
-        (props.selectedYear % 4 === 0 && props.selectedYear % 100 !== 0) || props.selectedYear % 400 === 0
-      return isLeapYear ? 366 : 365
-    }
-    if (!props.timeRange) return 0
-    return Math.ceil((props.timeRange.end - props.timeRange.start) / 86400)
+  const effectiveTimeRange = computed(() => resolveOverviewTimeRange(props.timeRange, props.timeFilter))
+  const hasTimeFilter = computed(() => hasOverviewTimeFilter(props.timeFilter))
+
+  // 活跃天数
+  const activeDays = computed(() => {
+    return props.dailyActivity.filter((d) => d.messageCount > 0).length
   })
+
+  // 时间跨度
+  const durationDays = computed(() => getOverviewDurationDays(effectiveTimeRange.value, activeDays.value))
 
   // 显示的消息数
   const displayMessageCount = computed(() => {
-    return props.selectedYear ? props.filteredMessageCount : props.session.messageCount
+    return hasTimeFilter.value ? props.filteredMessageCount : props.session.messageCount
   })
 
   // 显示的成员数
   const displayMemberCount = computed(() => {
-    return props.selectedYear ? (props.filteredMemberCount ?? props.session.memberCount) : props.session.memberCount
+    return hasTimeFilter.value ? (props.filteredMemberCount ?? props.session.memberCount) : props.session.memberCount
   })
 
-  // 全量时间跨度 (不随筛选变化)
+  // 当前筛选时间跨度
   const totalDurationDays = computed(() => {
-    if (!props.timeRange) return 0
-    return Math.ceil((props.timeRange.end - props.timeRange.start) / 86400)
+    return durationDays.value
   })
 
-  // 全量日均消息
+  // 当前筛选日均消息
   const totalDailyAvgMessages = computed(() => {
     if (totalDurationDays.value === 0) return 0
-    return Math.round(props.session.messageCount / totalDurationDays.value)
+    return Math.round(displayMessageCount.value / totalDurationDays.value)
   })
 
   // 日均消息数 (随筛选变化)
@@ -114,17 +120,9 @@ export function useOverviewStatistics(props: UseOverviewStatisticsProps, weekday
     return props.dailyActivity.reduce((max, d) => (d.messageCount > max.messageCount ? d : max), props.dailyActivity[0])
   })
 
-  // 活跃天数
-  const activeDays = computed(() => {
-    return props.dailyActivity.filter((d) => d.messageCount > 0).length
-  })
-
   // 总天数（用于计算活跃率）
   const totalDays = computed(() => {
-    if (!props.timeRange) return 0
-    const start = dayjs.unix(props.timeRange.start)
-    const end = dayjs.unix(props.timeRange.end)
-    return end.diff(start, 'day') + 1
+    return durationDays.value
   })
 
   // 活跃率

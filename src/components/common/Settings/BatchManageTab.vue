@@ -1,16 +1,30 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
+import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useToast } from '@/composables/useToast'
+import { useTableRowSelection, useTableSort, type TableSortDirection } from '@/composables/useTable'
 import { useSessionStore } from '@/stores/session'
 import type { AnalysisSession } from '@/types/base'
+import LazyAvatar from '@/components/common/avatar/LazyAvatar.vue'
+import OwnerPromptModal from '@/components/analysis/member/OwnerPromptModal.vue'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
 
 dayjs.extend(relativeTime)
 const toast = useToast()
+const SESSION_ROW_HEIGHT = 48
+
+const props = withDefaults(
+  defineProps<{
+    focusOwnerIssues?: boolean
+  }>(),
+  {
+    focusOwnerIssues: false,
+  }
+)
 
 const { t, locale } = useI18n()
 const sessionStore = useSessionStore()
@@ -18,6 +32,7 @@ const { sessions } = storeToRefs(sessionStore)
 
 // 搜索关键词
 const searchQuery = ref('')
+const ownerIssueCount = computed(() => sessions.value.filter((session) => session.ownerStatus !== 'resolved').length)
 
 // 过滤后的会话列表
 const filteredSessions = computed(() => {
@@ -25,11 +40,12 @@ const filteredSessions = computed(() => {
     return sessions.value
   }
   const query = searchQuery.value.toLowerCase().trim()
-  return sessions.value.filter((s) => s.name.toLowerCase().includes(query) || s.platform.toLowerCase().includes(query))
+  return sessions.value.filter(
+    (session) => session.name.toLowerCase().includes(query) || session.platform.toLowerCase().includes(query)
+  )
 })
 
-type SortField = 'name' | 'platform' | 'messageCount' | 'importedAt'
-type SortDirection = 'asc' | 'desc'
+type SortField = 'name' | 'platform' | 'owner' | 'messageCount' | 'importedAt'
 type HeaderAlign = 'left' | 'center' | 'right'
 type HeaderColumn =
   | {
@@ -73,6 +89,14 @@ const headerColumns: HeaderColumn[] = [
     align: 'center',
   },
   {
+    key: 'owner',
+    type: 'sortable',
+    field: 'owner',
+    labelKey: 'tools.batchManage.columns.owner',
+    class: 'w-28',
+    align: 'left',
+  },
+  {
     key: 'messages',
     type: 'sortable',
     field: 'messageCount',
@@ -104,41 +128,12 @@ const headerColumns: HeaderColumn[] = [
   },
 ]
 
-const sortState = ref<{ field: SortField | null; direction: SortDirection | null }>({
-  field: null,
-  direction: null,
+const { sortState, toggleSort, setSort, isSortActive } = useTableSort<SortField>({
+  initialState: { field: 'importedAt', direction: 'desc' },
 })
 
-function getDefaultDirection(_field: SortField): SortDirection {
-  return 'asc'
-}
-
-function toggleSort(field: SortField) {
-  if (sortState.value.field === field) {
-    if (sortState.value.direction === 'asc') {
-      sortState.value.direction = 'desc'
-    } else if (sortState.value.direction === 'desc') {
-      sortState.value = { field: null, direction: null }
-    } else {
-      sortState.value.direction = 'asc'
-    }
-    return
-  }
-  sortState.value = {
-    field,
-    direction: getDefaultDirection(field),
-  }
-}
-
-function getSortDirection(field: SortField): SortDirection | null {
-  if (sortState.value.field !== field) return null
-  return sortState.value.direction
-}
-
-function getSortIconClass(field: SortField, direction: SortDirection): string {
-  return getSortDirection(field) === direction
-    ? 'text-primary-500 dark:text-primary-400'
-    : 'text-gray-300 dark:text-gray-600'
+function getSortIconClass(field: SortField, direction: TableSortDirection): string {
+  return isSortActive(field, direction) ? 'text-primary-500 dark:text-primary-400' : 'text-gray-300 dark:text-gray-600'
 }
 
 function getAlignClass(align: HeaderAlign): string {
@@ -170,6 +165,13 @@ const sortedSessions = computed(() => {
     if (field === 'platform') {
       return getPlatformLabel(a.platform).localeCompare(getPlatformLabel(b.platform), locale.value) * multiplier
     }
+    if (field === 'owner') {
+      const ownerValue = (session: AnalysisSession) => {
+        if (session.ownerStatus === 'resolved') return `0:${session.ownerName || session.ownerId || ''}`
+        return session.ownerStatus === 'unresolved' ? '1:' : '2:'
+      }
+      return ownerValue(a).localeCompare(ownerValue(b), locale.value) * multiplier
+    }
     if (field === 'messageCount') {
       return (a.messageCount - b.messageCount) * multiplier
     }
@@ -179,8 +181,49 @@ const sortedSessions = computed(() => {
   return items
 })
 
-// 选中的会话 ID 集合
-const selectedIds = ref<Set<string>>(new Set())
+const listScrollRef = ref<HTMLElement | null>(null)
+
+function prioritizeOwnerIssues() {
+  setSort('owner', 'desc')
+  nextTick(() => listScrollRef.value?.scrollTo({ top: 0 }))
+}
+
+watch(
+  () => props.focusOwnerIssues,
+  (focus) => {
+    if (focus) prioritizeOwnerIssues()
+  },
+  { immediate: true }
+)
+
+const sessionVirtualizer = useVirtualizer(
+  computed(() => ({
+    count: sortedSessions.value.length,
+    getScrollElement: () => listScrollRef.value,
+    estimateSize: () => SESSION_ROW_HEIGHT,
+    overscan: 10,
+    getItemKey: (index: number) => sortedSessions.value[index]?.id ?? index,
+  }))
+)
+const virtualSessionRows = computed(() =>
+  sessionVirtualizer.value.getVirtualItems().map((virtualItem) => ({
+    virtualItem,
+    session: sortedSessions.value[virtualItem.index]!,
+  }))
+)
+const virtualListHeight = computed(() => sessionVirtualizer.value.getTotalSize())
+
+const {
+  selectedIds,
+  setSelection: setSelectedSessionIds,
+  clearSelection: clearSessionSelection,
+  isSelected,
+  handleRowClick,
+  handleRowMouseDown,
+} = useTableRowSelection({
+  rows: sortedSessions,
+  getRowId: (session) => session.id,
+})
 
 // 删除确认弹窗
 const showDeleteModal = ref(false)
@@ -193,6 +236,32 @@ const editingId = ref<string | null>(null)
 
 // 编辑中的名称
 const editingName = ref('')
+
+const ownerSessionId = ref<string | null>(null)
+const showOwnerModal = ref(false)
+const continueOwnerSetup = ref(false)
+const ownerSession = computed(() => sessions.value.find((session) => session.id === ownerSessionId.value) ?? null)
+
+function openOwnerModal(session: AnalysisSession, event: Event) {
+  event.stopPropagation()
+  ownerSessionId.value = session.id
+  continueOwnerSetup.value = session.ownerStatus !== 'resolved'
+  showOwnerModal.value = true
+}
+
+async function refreshAfterOwnerChange() {
+  await sessionStore.loadSessions()
+  if (!continueOwnerSetup.value) return
+
+  await nextTick()
+  const nextSession = sortedSessions.value.find((session) => session.ownerStatus !== 'resolved')
+  if (nextSession) {
+    ownerSessionId.value = nextSession.id
+    showOwnerModal.value = true
+  } else {
+    continueOwnerSetup.value = false
+  }
+}
 
 const selectedMergeSessions = computed(() => sessions.value.filter((s) => selectedIds.value.has(s.id)))
 const selectedMergeTypes = computed(() => new Set(selectedMergeSessions.value.map((s) => s.type)))
@@ -219,70 +288,15 @@ function toggleSelectAll() {
   if (isAllSelected.value) {
     // 取消选中过滤列表中的所有项
     const filteredIds = new Set(sortedSessions.value.map((s) => s.id))
-    selectedIds.value = new Set([...selectedIds.value].filter((id) => !filteredIds.has(id)))
+    setSelectedSessionIds([...selectedIds.value].filter((id) => !filteredIds.has(id)))
   } else {
     // 选中过滤列表中的所有项
     const newSet = new Set(selectedIds.value)
     for (const s of sortedSessions.value) {
       newSet.add(s.id)
     }
-    selectedIds.value = newSet
+    setSelectedSessionIds(newSet)
   }
-}
-
-// 上次点击的索引（基于排序后的列表），用于 Shift+Click 范围选择
-const lastClickedIndex = ref<number | null>(null)
-
-watch(sortedSessions, () => {
-  lastClickedIndex.value = null
-})
-
-// 切换单个选择
-function toggleSelect(id: string) {
-  const newSet = new Set(selectedIds.value)
-  if (newSet.has(id)) {
-    newSet.delete(id)
-  } else {
-    newSet.add(id)
-  }
-  selectedIds.value = newSet
-}
-
-// 处理行点击（支持 Shift+Click 范围多选）
-function handleRowClick(index: number, id: string, event: MouseEvent) {
-  if (event.shiftKey && lastClickedIndex.value !== null) {
-    // Shift+Click：选中 lastClickedIndex 到 index 之间的所有项
-    const start = Math.min(lastClickedIndex.value, index)
-    const end = Math.max(lastClickedIndex.value, index)
-    const newSet = new Set(selectedIds.value)
-    for (let i = start; i <= end; i++) {
-      const session = sortedSessions.value[i]
-      if (session) {
-        newSet.add(session.id)
-      }
-    }
-    selectedIds.value = newSet
-  } else {
-    // 普通点击：切换选中状态
-    toggleSelect(id)
-  }
-  // 始终更新 lastClickedIndex
-  lastClickedIndex.value = index
-}
-
-function handleRowMouseDown(event: MouseEvent) {
-  if (!event.shiftKey) return
-
-  const target = event.target as HTMLElement | null
-  if (target?.closest('input, textarea, [contenteditable="true"]')) return
-
-  // 避免浏览器默认的 Shift 文本范围选择，防止误选中行内文字
-  event.preventDefault()
-}
-
-// 判断是否选中
-function isSelected(id: string): boolean {
-  return selectedIds.value.has(id)
 }
 
 // 格式化时间
@@ -405,7 +419,7 @@ async function executeMerge() {
 
   try {
     // 1. 导出选中的会话为临时文件
-    const exportResult = await window.chatApi.exportSessionsToTempFiles(selectedSessionIds)
+    const exportResult = await window.mergeApi.exportSessionsToTempFiles(selectedSessionIds)
     if (!exportResult.success) {
       throw new Error(exportResult.error || '导出失败')
     }
@@ -456,13 +470,13 @@ async function executeMerge() {
     }
 
     // 6. 清理临时文件
-    await window.chatApi.cleanupTempExportFiles(tempFiles)
+    await window.mergeApi.cleanupTempExportFiles(tempFiles)
 
     // 7. 刷新会话列表
     await sessionStore.loadSessions()
 
     // 清空选择
-    selectedIds.value = new Set()
+    clearSessionSelection()
     showMergeModal.value = false
 
     // 提示成功
@@ -473,7 +487,7 @@ async function executeMerge() {
 
     // 清理临时文件
     if (tempFiles.length > 0) {
-      await window.chatApi.cleanupTempExportFiles(tempFiles)
+      await window.mergeApi.cleanupTempExportFiles(tempFiles)
     }
   } finally {
     isMerging.value = false
@@ -495,7 +509,7 @@ async function confirmBatchDelete() {
     }
 
     // 清空选择
-    selectedIds.value = new Set()
+    clearSessionSelection()
     showDeleteModal.value = false
   } catch (error) {
     console.error('Batch delete failed:', error)
@@ -517,6 +531,17 @@ onMounted(() => {
 
 <template>
   <div class="flex h-full flex-col">
+    <button
+      v-if="ownerIssueCount > 0"
+      type="button"
+      class="mb-3 inline-flex w-fit max-w-full items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-left text-xs text-amber-800 transition-colors hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-300 dark:hover:bg-amber-950/30"
+      @click="prioritizeOwnerIssues"
+    >
+      <UIcon name="i-heroicons-user-circle" class="h-4 w-4 shrink-0" />
+      <span>{{ t('tools.batchManage.ownerIssues', { count: ownerIssueCount }) }}</span>
+      <UIcon name="i-heroicons-arrow-right" class="h-3.5 w-3.5 shrink-0 opacity-70" />
+    </button>
+
     <!-- 搜索栏 -->
     <div class="mb-4">
       <UInput
@@ -588,10 +613,13 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-else class="flex-1 overflow-y-auto rounded-lg border border-gray-200/50 dark:border-gray-700/50">
+    <div
+      v-else
+      class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200/50 dark:border-gray-700/50"
+    >
       <!-- 表头 -->
       <div
-        class="sticky top-0 z-1 flex items-center gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-400"
+        class="flex shrink-0 items-center gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-gray-700 dark:bg-page-dark/80 dark:text-gray-400"
       >
         <template v-for="column in headerColumns" :key="column.key">
           <div v-if="column.type === 'spacer'" :class="column.class" />
@@ -613,101 +641,142 @@ onMounted(() => {
       </div>
 
       <!-- 列表内容 -->
-      <div
-        v-for="(session, index) in sortedSessions"
-        :key="session.id"
-        class="flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
-        :class="[
-          isSelected(session.id) ? 'bg-pink-50 dark:bg-pink-900/20' : '',
-          index !== sortedSessions.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : '',
-        ]"
-        @mousedown="handleRowMouseDown"
-        @click="handleRowClick(index, session.id, $event)"
-      >
-        <!-- 复选框 -->
-        <div class="w-6">
-          <UCheckbox :model-value="isSelected(session.id)" @click.stop="handleRowClick(index, session.id, $event)" />
-        </div>
-
-        <!-- 头像 -->
-        <div class="w-8">
-          <img
-            v-if="getSessionAvatar(session)"
-            :src="getSessionAvatar(session)!"
-            :alt="session.name"
-            class="h-8 w-8 shrink-0 rounded-full object-cover"
-          />
+      <div ref="listScrollRef" class="min-h-0 flex-1 overflow-y-auto">
+        <div class="relative" :style="{ height: `${virtualListHeight}px` }">
           <div
-            v-else
-            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
-            :class="isPrivateChat(session) ? 'bg-pink-500 text-white' : 'bg-primary-500 text-white'"
+            v-for="{ virtualItem, session } in virtualSessionRows"
+            :key="String(virtualItem.key)"
+            class="absolute left-0 right-0 top-0 flex h-12 cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+            :class="[
+              isSelected(session.id) ? 'bg-pink-50 dark:bg-pink-900/20' : '',
+              virtualItem.index !== sortedSessions.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : '',
+            ]"
+            :style="{ transform: `translateY(${virtualItem.start}px)` }"
+            @mousedown="handleRowMouseDown"
+            @click="handleRowClick(virtualItem.index, session.id, $event)"
           >
-            {{ getSessionAvatarText(session) }}
-          </div>
-        </div>
+            <!-- 复选框 -->
+            <div class="w-6">
+              <UCheckbox
+                :model-value="isSelected(session.id)"
+                @click.stop="handleRowClick(virtualItem.index, session.id, $event)"
+              />
+            </div>
 
-        <!-- 名称 -->
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-1.5">
-            <UIcon
-              :name="isPrivateChat(session) ? 'i-heroicons-user' : 'i-heroicons-user-group'"
-              class="h-3.5 w-3.5 shrink-0 text-gray-400"
-            />
-            <!-- 编辑模式 -->
-            <input
-              v-if="editingId === session.id"
-              v-model="editingName"
-              type="text"
-              class="w-full rounded border border-pink-300 bg-white px-2 py-0.5 text-sm font-medium text-gray-900 focus:border-pink-500 focus:outline-none focus:ring-1 focus:ring-pink-500 dark:border-pink-600 dark:bg-gray-800 dark:text-white"
-              autofocus
-              @blur="saveEdit"
-              @keydown.enter="saveEdit"
-              @keydown.escape="cancelEdit"
-              @click.stop
-            />
-            <!-- 显示模式 -->
-            <p
-              v-else
-              class="cursor-text truncate rounded px-1 text-sm font-medium text-gray-900 hover:bg-gray-200 dark:text-white dark:hover:bg-gray-700"
-              :title="t('tools.batchManage.clickToEdit')"
-              @click="startEdit(session, $event)"
+            <!-- 头像 -->
+            <div class="w-8">
+              <LazyAvatar
+                :src="getSessionAvatar(session)"
+                :alt="session.name"
+                :text="getSessionAvatarText(session)"
+                :fallback-class="[
+                  'flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-bold',
+                  isPrivateChat(session) ? 'bg-pink-500 text-white' : 'bg-primary-500 text-white',
+                ]"
+              />
+            </div>
+
+            <!-- 名称 -->
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <UIcon
+                  :name="isPrivateChat(session) ? 'i-heroicons-user' : 'i-heroicons-user-group'"
+                  class="h-3.5 w-3.5 shrink-0 text-gray-400"
+                />
+                <!-- 编辑模式 -->
+                <input
+                  v-if="editingId === session.id"
+                  v-model="editingName"
+                  type="text"
+                  class="w-full rounded border border-pink-300 bg-white px-2 py-0.5 text-sm font-medium text-gray-900 focus:border-pink-500 focus:outline-none focus:ring-1 focus:ring-pink-500 dark:border-pink-600 dark:bg-gray-800 dark:text-white"
+                  autofocus
+                  @blur="saveEdit"
+                  @keydown.enter="saveEdit"
+                  @keydown.escape="cancelEdit"
+                  @click.stop
+                />
+                <!-- 显示模式 -->
+                <p
+                  v-else
+                  class="cursor-text truncate rounded px-1 text-sm font-medium text-gray-900 hover:bg-gray-200 dark:text-white dark:hover:bg-gray-700"
+                  :title="t('tools.batchManage.clickToEdit')"
+                  @click="startEdit(session, $event)"
+                >
+                  {{ session.name }}
+                </p>
+              </div>
+            </div>
+
+            <!-- 平台 -->
+            <div class="w-20 text-center">
+              <span
+                class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                :class="getPlatformClass(session.platform)"
+              >
+                {{ getPlatformLabel(session.platform) }}
+              </span>
+            </div>
+
+            <!-- 我是谁 -->
+            <button
+              type="button"
+              class="flex w-28 min-w-0 items-center gap-1.5 text-left text-xs transition-colors hover:text-primary-600 dark:hover:text-primary-400"
+              :class="
+                session.ownerStatus === 'resolved'
+                  ? 'text-gray-600 dark:text-gray-300'
+                  : 'text-amber-600 dark:text-amber-400'
+              "
+              :title="session.ownerId || t('tools.batchManage.ownerStatus.missing')"
+              @click="openOwnerModal(session, $event)"
             >
-              {{ session.name }}
-            </p>
+              <UIcon
+                :name="
+                  session.ownerStatus === 'resolved' ? 'i-heroicons-user-circle' : 'i-heroicons-exclamation-circle'
+                "
+                class="h-3.5 w-3.5 shrink-0"
+              />
+              <span class="truncate">
+                {{
+                  session.ownerStatus === 'resolved'
+                    ? session.ownerName || session.ownerId
+                    : t(`tools.batchManage.ownerStatus.${session.ownerStatus}`)
+                }}
+              </span>
+              <UIcon name="i-heroicons-chevron-right" class="h-3 w-3 shrink-0 opacity-60" />
+            </button>
+
+            <!-- 消息数 -->
+            <div class="w-24 text-right text-sm text-gray-600 dark:text-gray-300">
+              {{ session.messageCount.toLocaleString() }}
+            </div>
+
+            <!-- AI 摘要数 -->
+            <div class="w-16 text-right text-sm text-gray-600 dark:text-gray-300">
+              {{ session.summaryCount || 0 }}
+            </div>
+
+            <!-- AI 对话数 -->
+            <div class="w-16 text-right text-sm text-gray-600 dark:text-gray-300">
+              {{ session.aiConversationCount || 0 }}
+            </div>
+
+            <!-- 导入时间 -->
+            <div class="w-28 text-right text-xs text-gray-500 dark:text-gray-400">
+              {{ formatTime(session.importedAt) }}
+            </div>
           </div>
-        </div>
-
-        <!-- 平台 -->
-        <div class="w-20 text-center">
-          <span
-            class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-            :class="getPlatformClass(session.platform)"
-          >
-            {{ getPlatformLabel(session.platform) }}
-          </span>
-        </div>
-
-        <!-- 消息数 -->
-        <div class="w-24 text-right text-sm text-gray-600 dark:text-gray-300">
-          {{ session.messageCount.toLocaleString() }}
-        </div>
-
-        <!-- AI 摘要数 -->
-        <div class="w-16 text-right text-sm text-gray-600 dark:text-gray-300">
-          {{ session.summaryCount || 0 }}
-        </div>
-
-        <!-- AI 对话数 -->
-        <div class="w-16 text-right text-sm text-gray-600 dark:text-gray-300">
-          {{ session.aiConversationCount || 0 }}
-        </div>
-
-        <!-- 导入时间 -->
-        <div class="w-28 text-right text-xs text-gray-500 dark:text-gray-400">
-          {{ formatTime(session.importedAt) }}
         </div>
       </div>
     </div>
+
+    <OwnerPromptModal
+      v-if="ownerSession"
+      v-model="showOwnerModal"
+      :session-id="ownerSession.id"
+      :chat-type="ownerSession.type"
+      @saved="refreshAfterOwnerChange"
+      @cleared="refreshAfterOwnerChange"
+    />
 
     <!-- 合并确认弹窗 -->
     <UModal v-model:open="showMergeModal" :ui="{ content: 'z-[101]', overlay: 'z-[100]' }">

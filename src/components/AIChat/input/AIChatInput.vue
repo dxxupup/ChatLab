@@ -7,6 +7,7 @@ import SlashCommandMenu from './SlashCommandMenu.vue'
 import { useSkillStore, type SkillSummary } from '@/stores/skill'
 import type { MentionedMemberContext } from '@/composables/useAIChat'
 import type { MemberWithStats } from '@/types/analysis'
+import { useDataService } from '@/services'
 
 const { t } = useI18n()
 
@@ -157,7 +158,7 @@ async function loadMentionMembers() {
 
   isLoadingMentionMembers.value = true
   try {
-    const members = await window.chatApi.getMembers(props.sessionId)
+    const members = await useDataService().getMembers(props.sessionId)
     mentionMembers.value = [...members].sort((a, b) => b.messageCount - a.messageCount)
   } catch (error) {
     console.error('加载 AI @ 成员列表失败:', error)
@@ -687,11 +688,11 @@ defineExpose({
       />
 
       <div
-        class="flex flex-col overflow-hidden rounded-2xl bg-white shadow-[0_2px_14px_rgba(0,0,0,0.04)] ring-1 ring-gray-200 transition-all dark:bg-gray-900 dark:ring-gray-800"
+        class="flex flex-col overflow-hidden rounded-2xl bg-white shadow-[0_2px_14px_rgba(0,0,0,0.04)] ring-1 ring-gray-200/60 transition-all dark:bg-page-dark dark:ring-white/5"
         :class="
           props.disabled
-            ? 'bg-gray-50/50 dark:bg-gray-900/50'
-            : 'focus-within:ring-primary-500/50 focus-within:shadow-[0_4px_20px_rgba(0,0,0,0.08)] dark:focus-within:ring-primary-500/50'
+            ? 'bg-gray-50/50 dark:bg-page-dark/50'
+            : 'focus-within:ring-primary-500/40 focus-within:shadow-[0_4px_20px_rgba(0,0,0,0.08)] dark:focus-within:ring-primary-500/40'
         "
       >
         <div class="relative px-4 pt-2.5 pb-2.5">

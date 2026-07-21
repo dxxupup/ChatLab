@@ -1,0 +1,98 @@
+# 应用程序的唯一标识符
+appId: com.chatlab.fun
+# 应用程序的产品名称
+productName: ChatLab
+# 发布配置
+publish:
+  provider: github
+  owner: ChatLab
+  repo: ChatLab
+# 构建资源所在的目录
+directories:
+  buildResources: build
+# 包含在最终应用程序构建中的文件列表
+files:
+  - out/**/*
+  - '!**/.vscode/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json}'
+  # jieba 词库文件已改为启动时远程下载，无需打包内置
+  - '!node_modules/@node-rs/jieba/dict.txt'
+  - '!node_modules/@node-rs/jieba/idf.txt'
+  - '!node_modules/@node-rs/jieba/dict.js'
+  - '!node_modules/@node-rs/jieba/dict.d.ts'
+  # onnxruntime-node 自带 darwin/linux/win32 全平台全架构原生二进制（合计 ~210M）。
+  # 只保留当前构建目标 ${platform}/${arch} 一份，避免 mac 包含 Linux/Windows 二进制（反之亦然）。
+  # 先排除整组 bin/napi-v6，再按目标平台/架构重新包含；electron-builder 后写规则覆盖先写规则。
+  # ${platform} -> darwin/linux/win32，${arch} -> x64/arm64，正好匹配该包目录结构。
+  - '!node_modules/onnxruntime-node/bin/napi-v6/**'
+  - 'node_modules/onnxruntime-node/bin/napi-v6/${platform}/${arch}/**'
+  # parser-native 是 workspace 内的 Rust 包：只需要 index.js/index.d.ts/package.json 和 *.node，
+  # 排除 Rust 源码与构建中间产物（CI 上 target/ 可达数百 MB）。
+  - '!node_modules/@openchatlab/parser-native/{target,src,node_modules}/**'
+  - '!node_modules/@openchatlab/parser-native/{Cargo.toml,Cargo.lock,build.rs,.gitignore}'
+# 哪些文件将不会被压缩，而是解压到构建目录
+# 仅含 .dylib（无 .node）的原生包不会被 electron-builder 自动解包，必须显式列出，
+# 否则 dlopen 无法从 asar 内加载：
+# - sqlite-vec*：vec0.dylib（SQLite 扩展）
+# - onnxruntime-node：onnxruntime_binding.node + libonnxruntime.*.dylib（本地向量模型推理）
+# - @img/**：sharp 原生绑定与 libvips-cpp.dylib（transformers 本地模型 eager require sharp）
+asarUnpack:
+  - resources/**
+  - node_modules/sqlite-vec*/**
+  - node_modules/onnxruntime-node/**
+  - node_modules/@img/**
+  - node_modules/@openchatlab/parser-native/**
+
+# Windows 平台配置
+win:
+  executableName: ChatLab
+  target: nsis
+  # Windows 构建显式携带 ensure-native 生成的 Electron ABI binding，避免
+  # electron-builder 在 workspace 中误判 appDir 时打入共享 Node ABI 产物。
+  extraResources:
+    - from: native/better_sqlite3.node
+      to: native/better_sqlite3.node
+
+# NSIS 安装器配置
+nsis:
+  oneClick: false
+  artifactName: ChatLab-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  include: installer-dpi.nsh
+  differentialPackage: false
+
+# macOS 平台配置
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  entitlements: build/entitlements.mac.plist
+  # 代码签名 - Hardened Runtime 是公证的必要条件
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  # 公证配置 - v26 自动检测环境变量进行公证，无需额外配置
+  extendInfo:
+    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  target:
+    # 架构由 CI 通过 --x64/--arm64 指定，避免在单个 job 里同时打双架构
+    - target: dmg
+    - target: zip
+  artifactName: ChatLab-${version}-${arch}.${ext}
+
+# macOS 平台的 DMG 配置
+dmg:
+  artifactName: ChatLab-${version}-${arch}.${ext}
+
+# 是否在构建之前重新编译原生模块。
+# macOS 继续由 electron-builder 重建共享 better-sqlite3；Windows 最终运行时使用
+# win.extraResources 中 desktop 自有的 Electron ABI binding。本地 build:mac/build:win
+# 仍通过 scripts/build-app.mjs 恢复共享 Node ABI，保证 pnpm test 不被破坏。
+npmRebuild: true

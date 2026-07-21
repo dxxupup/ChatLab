@@ -1,0 +1,101 @@
+{
+  "title": "Contacts",
+  "subtitle": "{count} private chats imported",
+  "disabled": "Current active private chat count in this range is {count}. Contacts are enabled after importing at least 1 group chat, or once active private chats reach 5.",
+  "empty": "No matching contacts",
+  "emptyValue": "None",
+  "search": "Search contacts",
+  "score": "Score {value}",
+  "timeRange": {
+    "1y": "1Y",
+    "2y": "2Y",
+    "3y": "3Y",
+    "5y": "5Y",
+    "all": "All"
+  },
+  "stats": {
+    "total": "Contacts",
+    "friends": "Friends",
+    "nonFriends": "Groupmates"
+  },
+  "filters": {
+    "allPools": "All sources",
+    "friends": "Friends",
+    "nonFriends": "Groupmates"
+  },
+  "tabs": {
+    "friends": "Friends",
+    "groupContacts": "Groupmates"
+  },
+  "pool": {
+    "friend": "Friend",
+    "manualFriend": "Friend · Manual",
+    "nonFriend": "Groupmate"
+  },
+  "group": {
+    "pinned": "Pinned contacts",
+    "friends": "Friends",
+    "group_contacts": "Groupmates"
+  },
+  "table": {
+    "contact": "Contact",
+    "status": "Type"
+  },
+  "actions": {
+    "recompute": "Recompute",
+    "markFriend": "Mark as friend",
+    "unmarkFriend": "Unmark friend",
+    "clearSearch": "Clear search",
+    "clearSelection": "Clear selection",
+    "openSourceSession": "Go to chat",
+    "viewSourceRecords": "View chat records",
+    "viewDetail": "View details for {name}"
+  },
+  "detail": {
+    "title": "Contact details",
+    "score": "Score",
+    "scoreHelp": "The score is used to sort contacts. A higher score means stronger interaction signals.",
+    "lastInteraction": "Last interaction",
+    "sources": "Source chats",
+    "sourceType": {
+      "private": "Private",
+      "group": "Group"
+    },
+    "aliases": "Aliases",
+    "signals": "Interaction signals",
+    "emptyTitle": "Select a contact",
+    "emptyDescription": "Choose a contact on the left to view interaction metrics and source chats."
+  },
+  "metrics": {
+    "privateMessages": "{count} private messages",
+    "privateMessagesLabel": "Private messages",
+    "activeMonths": "Active months",
+    "commonGroups": "Common groups",
+    "lastInteractionShort": "Recent",
+    "groups": "{count} common groups",
+    "coOccurrence": "Co-occurrences",
+    "replies": "Replies",
+    "groupSignals": "{count} co-occurrences"
+  },
+  "stale": {
+    "title": "Contacts may be stale",
+    "message": "Chat data changed. Contacts are updating in the background.",
+    "inline": "Contacts may be stale.",
+    "later": "Later"
+  },
+  "task": {
+    "running": "Computing contacts: {current} / {total} sessions",
+    "updating": "Contacts may have changed. Recomputing.",
+    "failed": "Contact computation failed",
+    "retry": "Retry"
+  },
+  "toast": {
+    "recomputed": "Contacts recomputed",
+    "recomputeStarted": "Started computing contacts in the background",
+    "recomputeFailed": "Recompute failed",
+    "markFriendSucceeded": "Marked as friend",
+    "markFriendFailed": "Failed to mark friend",
+    "unmarkFriendSucceeded": "Friend mark removed",
+    "unmarkFriendFailed": "Failed to remove friend mark"
+  }
+}

@@ -1,25 +1,29 @@
 {
-  "title": "ChatLab",
-  "subtitle": "Chat History Analysis Lab",
-  "features": {
-    "privacy": {
-      "title": "Privacy First",
-      "description": "Chat records stored and analyzed locally, protecting your privacy."
-    },
-    "analysis": {
-      "title": "Multi-dimensional Analysis",
-      "description": "From rankings to quotes, comprehensive insights into chat data."
-    },
-    "ai": {
-      "title": "AI Insights",
-      "description": "Built-in AI Agent to answer all questions about your chats and discover hidden stories."
-    }
+  "tagline": "Explore New Chat Memories",
+  "tabs": {
+    "file": "File Import",
+    "api": "API Import",
+    "cli": "CLI Import",
+    "autoSyncTitle": "Automatic Sync",
+    "autoSyncDescription": "Let ChatLab periodically pull new chat records from an external data source.",
+    "autoSyncButton": "Configure Sync",
+    "apiPushTitle": "API Push",
+    "apiPushDescription": "Let third-party tools, plugins, or scripts write through the local API.",
+    "apiPushButton": "Configure API",
+    "agentImportTitle": "Import with an AI Agent",
+    "agentImportDescription": "Install the official Skill to import chat records automatically.",
+    "manualCliTitle": "Use the CLI Manually",
+    "manualCliDescription": "Ideal for terminal workflows, batch scripts, and repeatable automation.",
+    "copyCommand": "Copy command",
+    "viewDocs": "View documentation"
   },
   "import": {
     "dropHint": "Drop to import files",
     "clickHint": "Click to select or drag chat records to import",
     "multipleHint": "Multiple files can be selected or dragged at once",
     "selectFiles": "Select chat record files",
+    "selectFolder": "Select export folder",
+    "importFolder": "Import Folder",
     "chatRecords": "Chat Records",
     "allFiles": "All Files",
     "progress": {
@@ -27,19 +31,30 @@
       "reading": "Reading file...",
       "parsing": "Parsing messages...",
       "saving": "Saving to database...",
+      "indexing": "Building search index...",
       "done": "Import complete",
       "error": "Import interrupted"
     },
     "processed": "{count} messages processed",
-    "tutorial": "How to export chat records",
     "viewLog": "View import log",
     "cannotReadPath": "Cannot read file path",
-    "preparing": "Preparing import...",
     "errors": {
       "no_file_selected": "No file selected",
       "import_failed": "Import failed",
+      "import_in_progress": "Another import is already in progress. Please try again later.",
       "unrecognized_format": "Unrecognized file format",
       "no_messages": "No messages parsed. Please check if the file format is correct.",
+      "no_chat_selected": "No chat selected",
+      "archive_single_file_required": "Import archive files one at a time",
+      "archive_unsupported": "This archive format is not supported",
+      "archive_encrypted": "Encrypted archives are not supported",
+      "archive_corrupt": "The archive is corrupt or incomplete",
+      "archive_unsafe_path": "The archive contains an unsafe file path",
+      "archive_limit_exceeded": "The archive exceeds the safe processing limit",
+      "google_chat_structure_not_found": "No Google Chat export data was found",
+      "google_chat_conversation_incomplete": "A Google Chat conversation is missing required files",
+      "import_source_not_found": "The import source no longer exists. Select the archive again.",
+      "import_source_expired": "The import source expired. Select the archive again.",
       "actionHint": "You can try manual format matching or view the log below:"
     },
     "diagnostics": {
@@ -48,6 +63,12 @@
       "written": " / Written: ",
       "skipped": " / Skipped: "
     },
+    "outcome": {
+      "created": "New session created",
+      "ambiguous": "Multiple existing sessions matched, so they were not merged and a new session was created",
+      "incremental": "Added {newCount} messages and skipped {duplicateCount} duplicates",
+      "unchanged": "Already imported; no new messages"
+    },
     "batch": {
       "importing": "Batch importing",
       "progressCount": "{current} of {total}",
@@ -55,26 +76,33 @@
       "waiting": "Waiting",
       "skipped": "Skipped",
       "success": "Import successful",
+      "created": "New session created",
+      "ambiguous": "Multiple candidates matched; created a new session",
+      "incremental": "Added {newCount}; skipped {duplicateCount} duplicates",
+      "unchanged": "Already imported; no new messages",
       "completed": "Batch import completed",
       "summary": "{success} succeeded, {failed} failed, {cancelled} skipped",
       "view": "View"
     },
     "options": {
-      "title": "More Options",
       "mergeImport": "Merge Import",
       "mergeImportHint": "Multiple files will be merged into one chat record"
     },
     "merge": {
       "importing": "Merging",
       "parsing": "Parsing files...",
-      "parsingFile": "Parsing: {name}",
       "merging": "Merging messages...",
       "completed": "Merge completed",
       "completedHint": "{count} files merged",
       "messageCount": "{count} messages",
-      "failed": "Merge failed",
-      "cancel": "Cancel merge"
+      "failed": "Merge failed"
     }
+  },
+  "demo": {
+    "viewExample": "Try a Demo",
+    "downloading": "Downloading demo data...",
+    "importing": "Importing demo data...",
+    "failed": "Failed to load demo data. Please check your network and try again."
   },
   "migration": {
     "title": "Database upgrade required",
@@ -98,6 +126,8 @@
     "chatCount": "{count} chats",
     "selected": "{count} selected",
     "messageCount": "{count} messages",
+    "memberCount": "{count} members",
+    "empty": "Empty chat",
     "import": "Import ({count})",
     "noChats": "No chats found"
   },
@@ -107,6 +137,9 @@
     "manualSelect": "Select format manually",
     "confirm": "Import with this format"
   },
+  "quickStart": {
+    "export": "Getting Started"
+  },
   "footer": {
     "website": "Website",
     "terms": "Terms of Use"
@@ -114,7 +147,6 @@
   "changelog": {
     "title": "Changelog",
     "subtitle": "View all version updates",
-    "viewChangelog": "Changelog",
     "latest": "Latest",
     "current": "Current",
     "total": "{count} versions in total",
@@ -127,7 +159,8 @@
       "refactor": "Refactors",
       "docs": "Docs",
       "chore": "Other",
-      "style": "Style"
+      "style": "Style",
+      "ci": "CI"
     }
   }
 }

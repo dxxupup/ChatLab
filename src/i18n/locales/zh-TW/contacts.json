@@ -1,0 +1,101 @@
+{
+  "title": "聯絡人",
+  "subtitle": "已匯入 {count} 個私聊會話",
+  "disabled": "目前時間範圍內有效私聊會話數為 {count}。匯入至少 1 個群聊，或有效私聊達到 5 個後會啟用聯絡人。",
+  "empty": "沒有符合的聯絡人",
+  "emptyValue": "暫無",
+  "search": "搜尋聯絡人",
+  "score": "分數 {value}",
+  "timeRange": {
+    "1y": "近1年",
+    "2y": "近2年",
+    "3y": "近3年",
+    "5y": "近5年",
+    "all": "全部"
+  },
+  "stats": {
+    "total": "聯絡人",
+    "friends": "好友",
+    "nonFriends": "群友"
+  },
+  "filters": {
+    "allPools": "全部來源",
+    "friends": "好友",
+    "nonFriends": "群友"
+  },
+  "tabs": {
+    "friends": "好友",
+    "groupContacts": "群友"
+  },
+  "pool": {
+    "friend": "好友",
+    "manualFriend": "好友 · 手動標記",
+    "nonFriend": "群友"
+  },
+  "group": {
+    "pinned": "置頂聯絡人",
+    "friends": "好友",
+    "group_contacts": "群友"
+  },
+  "table": {
+    "contact": "聯絡人",
+    "status": "類型"
+  },
+  "actions": {
+    "recompute": "重新計算",
+    "markFriend": "標記為好友",
+    "unmarkFriend": "取消標記",
+    "clearSearch": "清空搜尋",
+    "clearSelection": "取消選中",
+    "openSourceSession": "前往對話",
+    "viewSourceRecords": "查看聊天記錄",
+    "viewDetail": "查看 {name} 的詳情"
+  },
+  "detail": {
+    "title": "聯絡人詳情",
+    "score": "綜合分",
+    "scoreHelp": "綜合分用於聯絡人排序。分數越高，代表互動訊號越強。",
+    "lastInteraction": "最近互動",
+    "sources": "來源會話",
+    "sourceType": {
+      "private": "私聊",
+      "group": "群聊"
+    },
+    "aliases": "別名",
+    "signals": "互動訊號",
+    "emptyTitle": "選擇一個聯絡人",
+    "emptyDescription": "點擊左側聯絡人後，這裡會顯示互動指標和來源會話。"
+  },
+  "metrics": {
+    "privateMessages": "{count} 則私聊",
+    "privateMessagesLabel": "私聊訊息",
+    "activeMonths": "活躍月份",
+    "commonGroups": "共同群",
+    "lastInteractionShort": "最近",
+    "groups": "{count} 個共同群",
+    "coOccurrence": "同框次數",
+    "replies": "回覆互動",
+    "groupSignals": "{count} 次同框"
+  },
+  "stale": {
+    "title": "聯絡人資料可能已過期",
+    "message": "偵測到聊天庫發生變化，正在背景更新聯絡人。",
+    "inline": "聯絡人資料可能已過期。",
+    "later": "稍後"
+  },
+  "task": {
+    "running": "正在計算聯絡人：{current} / {total} 個會話",
+    "updating": "聯絡人資料可能已更新，正在重新計算。",
+    "failed": "聯絡人計算失敗",
+    "retry": "重試"
+  },
+  "toast": {
+    "recomputed": "聯絡人已重新計算",
+    "recomputeStarted": "已開始在背景計算聯絡人",
+    "recomputeFailed": "重新計算失敗",
+    "markFriendSucceeded": "已標記為好友",
+    "markFriendFailed": "標記好友失敗",
+    "unmarkFriendSucceeded": "已取消標記",
+    "unmarkFriendFailed": "取消標記失敗"
+  }
+}

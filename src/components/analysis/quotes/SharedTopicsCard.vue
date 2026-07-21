@@ -5,14 +5,19 @@ import { ThemeCard } from '@/components/UI'
 import { useSettingsStore } from '@/stores/settings'
 import type { SharedWord } from '@/types/quotes/languagePreference'
 import type { MemberWithStats } from '@/types/analysis'
+import { useDataService } from '@/services'
+import { analyticsPost } from '@/services/utils/http'
+import type { TimeFilter } from '@openchatlab/shared-types'
+
+interface WordFrequencyResult {
+  words: Array<{ word: string; count: number; percentage: number }>
+  totalWords: number
+  totalMessages: number
+  uniqueWords: number
+}
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
-
-interface TimeFilter {
-  startTs?: number
-  endTs?: number
-}
 
 type DictType = 'default' | 'zh-CN' | 'zh-TW'
 
@@ -52,7 +57,7 @@ async function loadSharedWords() {
 
   try {
     if (memberList.value.length === 0) {
-      memberList.value = await window.chatApi.getMembers(props.sessionId)
+      memberList.value = await useDataService().getMembers(props.sessionId)
     }
     const topTwo = [...memberList.value].sort((a, b) => b.messageCount - a.messageCount).slice(0, 2)
     if (topTwo.length < 2) {
@@ -73,8 +78,8 @@ async function loadSharedWords() {
     }
 
     const [resultA, resultB] = await Promise.all([
-      window.nlpApi.getWordFrequency({ ...baseParams, memberId: topTwo[0].id }),
-      window.nlpApi.getWordFrequency({ ...baseParams, memberId: topTwo[1].id }),
+      analyticsPost<WordFrequencyResult>('/nlp/word-frequency', { ...baseParams, memberId: topTwo[0].id }),
+      analyticsPost<WordFrequencyResult>('/nlp/word-frequency', { ...baseParams, memberId: topTwo[1].id }),
     ])
 
     const wordsB = new Map(resultB.words.map((w) => [w.word, w.count]))
@@ -110,7 +115,7 @@ watch(
 </script>
 
 <template>
-  <ThemeCard v-if="displayWords.length > 0" variant="section">
+  <ThemeCard v-if="displayWords.length > 0">
     <div class="px-5 py-4 sm:px-6">
       <div class="mb-4 flex items-center gap-2">
         <UIcon name="i-heroicons-link" class="h-4 w-4 text-emerald-500" />

@@ -1,0 +1,101 @@
+{
+  "title": "联系人",
+  "subtitle": "已导入 {count} 个私聊会话",
+  "disabled": "当前时间范围内有效私聊会话数为 {count}。导入至少 1 个群聊，或有效私聊达到 5 个后会启用联系人。",
+  "empty": "没有匹配的联系人",
+  "emptyValue": "暂无",
+  "search": "搜索联系人",
+  "score": "分数 {value}",
+  "timeRange": {
+    "1y": "近1年",
+    "2y": "近2年",
+    "3y": "近3年",
+    "5y": "近5年",
+    "all": "全部"
+  },
+  "stats": {
+    "total": "联系人",
+    "friends": "好友",
+    "nonFriends": "群友"
+  },
+  "filters": {
+    "allPools": "全部来源",
+    "friends": "好友",
+    "nonFriends": "群友"
+  },
+  "tabs": {
+    "friends": "好友",
+    "groupContacts": "群友"
+  },
+  "pool": {
+    "friend": "好友",
+    "manualFriend": "好友 · 手动标记",
+    "nonFriend": "群友"
+  },
+  "group": {
+    "pinned": "置顶联系人",
+    "friends": "好友",
+    "group_contacts": "群友"
+  },
+  "table": {
+    "contact": "联系人",
+    "status": "类型"
+  },
+  "actions": {
+    "recompute": "重新计算",
+    "markFriend": "标记为好友",
+    "unmarkFriend": "取消标记",
+    "clearSearch": "清空搜索",
+    "clearSelection": "取消选中",
+    "openSourceSession": "前往对话",
+    "viewSourceRecords": "查看聊天记录",
+    "viewDetail": "查看 {name} 的详情"
+  },
+  "detail": {
+    "title": "联系人详情",
+    "score": "综合分",
+    "scoreHelp": "综合分用于联系人排序。分数越高，代表互动信号越强。",
+    "lastInteraction": "最近互动",
+    "sources": "来源会话",
+    "sourceType": {
+      "private": "私聊",
+      "group": "群聊"
+    },
+    "aliases": "别名",
+    "signals": "互动信号",
+    "emptyTitle": "选择一个联系人",
+    "emptyDescription": "点击左侧联系人后，这里会显示互动指标和来源会话。"
+  },
+  "metrics": {
+    "privateMessages": "{count} 条私聊",
+    "privateMessagesLabel": "私聊消息",
+    "activeMonths": "活跃月份",
+    "commonGroups": "共同群",
+    "lastInteractionShort": "最近",
+    "groups": "{count} 个共同群",
+    "coOccurrence": "同框次数",
+    "replies": "回复互动",
+    "groupSignals": "{count} 次同框"
+  },
+  "stale": {
+    "title": "联系人数据可能已过期",
+    "message": "检测到聊天库发生变化，正在后台更新联系人。",
+    "inline": "联系人数据可能已过期。",
+    "later": "稍后"
+  },
+  "task": {
+    "running": "正在计算联系人：{current} / {total} 个会话",
+    "updating": "联系人数据可能已更新，正在重新计算。",
+    "failed": "联系人计算失败",
+    "retry": "重试"
+  },
+  "toast": {
+    "recomputed": "联系人已重新计算",
+    "recomputeStarted": "已开始后台计算联系人",
+    "recomputeFailed": "重新计算失败",
+    "markFriendSucceeded": "已标记为好友",
+    "markFriendFailed": "标记好友失败",
+    "unmarkFriendSucceeded": "已取消标记",
+    "unmarkFriendFailed": "取消标记失败"
+  }
+}

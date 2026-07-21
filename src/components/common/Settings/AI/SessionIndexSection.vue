@@ -1,0 +1,374 @@
+<script setup lang="ts">
+/**
+ * 会话索引管理区块
+ * 配置会话索引阈值和批量生成功能
+ */
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import UITabs from '@/components/UI/Tabs.vue'
+import { useDataService, useSessionIndexService } from '@/services'
+import {
+  getSessionGapThreshold,
+  getSummaryStrategy,
+  patchUiConfig,
+  type SummaryStrategy,
+} from '@/composables/useUiConfig'
+
+const { t } = useI18n()
+
+// 会话索引状态
+interface SessionIndexStatus {
+  id: string
+  name: string
+  hasIndex: boolean
+  sessionCount: number
+}
+
+// 会话索引配置
+const DEFAULT_GAP_MINUTES = 30 // 默认30分钟
+const sessionGapMinutes = ref(DEFAULT_GAP_MINUTES)
+
+// 摘要策略
+const summaryStrategy = ref<SummaryStrategy>('standard')
+const summaryStrategyItems = computed(() => [
+  { label: t('settings.ai.session.summaryBrief'), value: 'brief' },
+  { label: t('settings.ai.session.summaryStandard'), value: 'standard' },
+])
+
+// 批量生成相关状态
+const allSessionsStatus = ref<SessionIndexStatus[]>([])
+const isLoadingSessionStatus = ref(false)
+const isBatchGenerating = ref(false)
+const batchProgress = ref({ current: 0, total: 0, currentName: '' })
+const showRegenerateConfirm = ref(false)
+
+// 计算统计信息
+const sessionIndexStats = computed(() => {
+  const total = allSessionsStatus.value.length
+  const generated = allSessionsStatus.value.filter((s) => s.hasIndex).length
+  const notGenerated = total - generated
+  return { total, generated, notGenerated }
+})
+
+// 进度百分比
+const batchProgressPercent = computed(() => {
+  if (batchProgress.value.total === 0) return 0
+  return Math.round((batchProgress.value.current / batchProgress.value.total) * 100)
+})
+
+function saveSessionThreshold() {
+  if (sessionGapMinutes.value < 1) sessionGapMinutes.value = 1
+  if (sessionGapMinutes.value > 1440) sessionGapMinutes.value = 1440
+  patchUiConfig({ session_gap_threshold: sessionGapMinutes.value * 60 })
+}
+
+function loadSessionThreshold() {
+  const threshold = getSessionGapThreshold()
+  sessionGapMinutes.value = Math.round(threshold / 60)
+}
+
+function onSummaryStrategyChange(val: string | number) {
+  summaryStrategy.value = val as SummaryStrategy
+  patchUiConfig({ summary_strategy: val as SummaryStrategy })
+}
+
+// 加载所有会话的索引状态（单次批量请求）
+async function loadSessionIndexStatus() {
+  isLoadingSessionStatus.value = true
+  try {
+    const [sessions, indexStats] = await Promise.all([
+      useDataService().getSessions(),
+      useSessionIndexService().getAllIndexStats(),
+    ])
+
+    const statsMap = new Map(indexStats.map((s) => [s.sessionId, s]))
+    allSessionsStatus.value = sessions.map((session) => {
+      const stats = statsMap.get(session.id)
+      return {
+        id: session.id,
+        name: session.name,
+        hasIndex: stats?.hasIndex ?? false,
+        sessionCount: stats?.sessionCount ?? 0,
+      }
+    })
+  } catch (error) {
+    console.error('加载会话索引状态失败:', error)
+  } finally {
+    isLoadingSessionStatus.value = false
+  }
+}
+
+// 批量生成所有未生成索引的会话
+async function batchGenerateIndex() {
+  const notGeneratedSessions = allSessionsStatus.value.filter((s) => !s.hasIndex)
+  if (notGeneratedSessions.length === 0) return
+
+  isBatchGenerating.value = true
+  batchProgress.value = { current: 0, total: notGeneratedSessions.length, currentName: '' }
+
+  // 获取阈值
+  const gapThreshold = sessionGapMinutes.value * 60
+
+  for (let i = 0; i < notGeneratedSessions.length; i++) {
+    const session = notGeneratedSessions[i]
+    batchProgress.value = {
+      current: i,
+      total: notGeneratedSessions.length,
+      currentName: session.name,
+    }
+
+    try {
+      const count = await useSessionIndexService().generate(session.id, gapThreshold)
+      // 更新状态
+      const statusItem = allSessionsStatus.value.find((s) => s.id === session.id)
+      if (statusItem) {
+        statusItem.hasIndex = true
+        statusItem.sessionCount = count
+      }
+    } catch (error) {
+      console.error(`生成会话 ${session.name} 索引失败:`, error)
+    }
+  }
+
+  batchProgress.value = {
+    current: notGeneratedSessions.length,
+    total: notGeneratedSessions.length,
+    currentName: '',
+  }
+  isBatchGenerating.value = false
+}
+
+function confirmRegenerateAll() {
+  showRegenerateConfirm.value = false
+  batchRegenerateAll()
+}
+
+// 批量重新生成所有会话的索引
+async function batchRegenerateAll() {
+  if (allSessionsStatus.value.length === 0) return
+
+  isBatchGenerating.value = true
+  batchProgress.value = { current: 0, total: allSessionsStatus.value.length, currentName: '' }
+
+  // 获取阈值
+  const gapThreshold = sessionGapMinutes.value * 60
+
+  for (let i = 0; i < allSessionsStatus.value.length; i++) {
+    const session = allSessionsStatus.value[i]
+    batchProgress.value = {
+      current: i,
+      total: allSessionsStatus.value.length,
+      currentName: session.name,
+    }
+
+    try {
+      const count = await useSessionIndexService().generate(session.id, gapThreshold)
+      // 更新状态
+      session.hasIndex = true
+      session.sessionCount = count
+    } catch (error) {
+      console.error(`生成会话 ${session.name} 索引失败:`, error)
+    }
+  }
+
+  batchProgress.value = {
+    current: allSessionsStatus.value.length,
+    total: allSessionsStatus.value.length,
+    currentName: '',
+  }
+  isBatchGenerating.value = false
+}
+
+// 使用 IntersectionObserver 实现懒加载：仅当组件进入视口时才加载会话状态
+const sectionRef = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+let hasLoadedStatus = false
+
+onMounted(() => {
+  loadSessionThreshold()
+  summaryStrategy.value = getSummaryStrategy()
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      if (entries[0]?.isIntersecting && !hasLoadedStatus) {
+        hasLoadedStatus = true
+        loadSessionIndexStatus()
+        observer?.disconnect()
+      }
+    },
+    { threshold: 0.1 }
+  )
+  if (sectionRef.value) observer.observe(sectionRef.value)
+})
+
+onUnmounted(() => {
+  observer?.disconnect()
+})
+</script>
+
+<template>
+  <div ref="sectionRef" class="space-y-6">
+    <!-- 会话索引配置 -->
+    <div class="space-y-3">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+            <UIcon name="i-heroicons-clock" class="h-4 w-4 text-blue-500" />
+            {{ t('settings.ai.session.title') }}
+          </h3>
+          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('settings.ai.session.description') }}
+          </p>
+        </div>
+        <!-- 刷新按钮 -->
+        <UButton
+          icon="i-heroicons-arrow-path"
+          variant="ghost"
+          size="xs"
+          :loading="isLoadingSessionStatus"
+          @click="loadSessionIndexStatus"
+        />
+      </div>
+
+      <!-- 摘要策略设置 -->
+      <div
+        class="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50"
+      >
+        <div>
+          <span class="text-sm text-gray-700 dark:text-gray-300">
+            {{ t('settings.ai.session.summaryStrategy') }}
+          </span>
+          <p class="text-xs text-gray-400">
+            {{ t('settings.ai.session.summaryStrategyHelp') }}
+          </p>
+        </div>
+        <UITabs
+          :model-value="summaryStrategy"
+          :items="summaryStrategyItems"
+          size="xs"
+          @update:model-value="onSummaryStrategyChange"
+        />
+      </div>
+
+      <!-- 默认阈值设置 -->
+      <div
+        class="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50"
+      >
+        <div>
+          <span class="text-sm text-gray-700 dark:text-gray-300">
+            {{ t('settings.ai.session.defaultThreshold') }}
+          </span>
+          <p class="text-xs text-gray-400">
+            {{ t('settings.ai.session.thresholdHelp') }}
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <UInput
+            v-model.number="sessionGapMinutes"
+            type="number"
+            :min="1"
+            :max="1440"
+            size="xs"
+            class="w-20"
+            @blur="saveSessionThreshold"
+          />
+          <span class="text-xs text-gray-500">{{ t('settings.ai.session.thresholdUnit') }}</span>
+        </div>
+      </div>
+
+      <!-- 会话索引统计 -->
+      <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-sm text-gray-700 dark:text-gray-300">
+              {{ t('settings.ai.session.batchTitle') }}
+            </span>
+            <div v-if="!isLoadingSessionStatus" class="mt-1 flex items-center gap-3 text-xs">
+              <span class="text-gray-500">
+                {{ t('settings.ai.session.totalSessions', { count: sessionIndexStats.total }) }}
+              </span>
+              <span class="text-green-600 dark:text-green-400">
+                {{ t('settings.ai.session.generatedCount', { count: sessionIndexStats.generated }) }}
+              </span>
+              <span v-if="sessionIndexStats.notGenerated > 0" class="text-amber-600 dark:text-amber-400">
+                {{ t('settings.ai.session.notGeneratedCount', { count: sessionIndexStats.notGenerated }) }}
+              </span>
+            </div>
+            <div v-else class="mt-1 flex items-center gap-1 text-xs text-gray-400">
+              <UIcon name="i-heroicons-arrow-path" class="h-3 w-3 animate-spin" />
+              {{ t('settings.ai.session.loadingStatus') }}
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <UButton
+              v-if="sessionIndexStats.notGenerated > 0"
+              size="xs"
+              color="primary"
+              :loading="isBatchGenerating"
+              :disabled="isLoadingSessionStatus"
+              @click="batchGenerateIndex"
+            >
+              <UIcon v-if="!isBatchGenerating" name="i-heroicons-sparkles" class="mr-1 h-3 w-3" />
+              {{ t('settings.ai.session.batchGenerate') }}
+            </UButton>
+            <UButton
+              size="xs"
+              variant="soft"
+              :loading="isBatchGenerating"
+              :disabled="isLoadingSessionStatus || sessionIndexStats.total === 0"
+              @click="showRegenerateConfirm = true"
+            >
+              <UIcon v-if="!isBatchGenerating" name="i-heroicons-arrow-path" class="mr-1 h-3 w-3" />
+              {{ t('settings.ai.session.batchRegenerate') }}
+            </UButton>
+          </div>
+        </div>
+
+        <!-- 批量生成进度 -->
+        <div v-if="isBatchGenerating" class="mt-3 space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-gray-500">{{ t('settings.ai.session.generating') }} {{ batchProgress.currentName }}</span>
+            <span class="font-medium text-gray-700 dark:text-gray-300">
+              {{ batchProgress.current }}/{{ batchProgress.total }} ({{ batchProgressPercent }}%)
+            </span>
+          </div>
+          <UProgress :value="batchProgressPercent" size="sm" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 全部重新生成确认弹窗 -->
+    <UModal v-model:open="showRegenerateConfirm" :ui="{ content: 'z-[101]', overlay: 'z-[100]' }">
+      <template #content>
+        <div class="p-5">
+          <div class="mb-4 flex items-center gap-3">
+            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+              <UIcon name="i-heroicons-exclamation-triangle" class="h-5 w-5 text-red-600 dark:text-red-400" />
+            </div>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('settings.ai.session.batchRegenerateConfirmTitle') }}
+            </h3>
+          </div>
+
+          <div class="space-y-3 text-sm text-gray-600 dark:text-gray-400">
+            <p>{{ t('settings.ai.session.batchRegenerateConfirmMessage') }}</p>
+            <div class="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/50 dark:bg-red-900/20">
+              <p class="text-xs text-red-700 dark:text-red-400">
+                {{ t('settings.ai.session.batchRegenerateConfirmWarning') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="mt-5 flex justify-end gap-2">
+            <UButton variant="ghost" @click="showRegenerateConfirm = false">
+              {{ t('common.cancel') }}
+            </UButton>
+            <UButton color="error" @click="confirmRegenerateAll">
+              {{ t('settings.ai.session.batchRegenerate') }}
+            </UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+  </div>
+</template>

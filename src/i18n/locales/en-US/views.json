@@ -1,6 +1,5 @@
 {
   "cluster": {
-    "title": "Interaction Frequency",
     "rankingView": "Ranking",
     "memberView": "Member View",
     "matrixView": "Matrix View",
@@ -45,11 +44,7 @@
     "noTextMessages": "No text messages",
     "noData": "No data",
     "profile": {
-      "totalMessages": "Total",
-      "textMessages": "Text Messages",
-      "avgLength": "Avg Length",
       "avgLengthUnit": "{count} chars/msg",
-      "mediaRatio": "Media Ratio",
       "textExpression": "Text Expression",
       "textExpressionDesc": "Longest message {count} chars",
       "mediaRichness": "Media Richness",
@@ -57,24 +52,64 @@
       "shortMasterDesc": "{count} msgs with ≤5 chars",
       "essayLover": "Essay Lover",
       "essayLoverDesc": "Messages with ≥{threshold} chars",
+      "typeDistribution": "Msg Types",
+      "heroLine1Prefix": "A total of",
+      "heroLine1Suffix": "messages exchanged"
+    },
+    "typeCard": {
+      "watermark": "Type Report",
+      "nonTextPrefix": "Besides text,",
+      "nonTextImage": "images",
+      "nonTextEmoji": "emojis",
+      "nonTextVoice": "voice msgs",
+      "nonTextVideo": "videos",
+      "nonTextFile": "files",
+      "nonTextLink": "links",
+      "unitImage": "images",
+      "unitEmoji": "emojis",
+      "unitVoice": "voice msgs",
+      "unitVideo": "videos",
+      "unitFile": "files",
+      "unitLink": "links"
+    },
+    "timeCard": {
+      "hourlyDistribution": "24h Distribution",
+      "watermark": "Time Report",
+      "heroDaysIn": "days,",
+      "heroDaysActive": "days active",
+      "heroAvgPrefix": "Average",
+      "heroAvgSuffix": "messages/day",
+      "personalityNightOwl": "Night Owl",
+      "personalityEarlyBird": "Early Bird",
+      "personalityLunchChat": "Lunch Chatter",
+      "personalityEveningChat": "Evening Talker",
+      "personalityDaytime": "Daytime Active",
+      "personalityEveryday": "Always On",
+      "personalityWeekend": "Weekend Active",
+      "personalityWeekday": "Weekday Active",
       "peakRecord": "Peak Record",
       "peakRecordDesc": "Max {count} msgs in a day",
-      "topHours": "Top Active Hours",
-      "images": "Images",
-      "emoji": "Emoji",
-      "voiceVideo": "Voice/Video",
-      "typeDistribution": "Msg Types",
-      "hourlyDistribution": "24h Activity",
-      "watermark": "Message Report",
-      "heroLine1Prefix": "A total of",
-      "heroLine1Suffix": "messages exchanged",
-      "heroLine2Prefix": "Averaging",
-      "heroLine2Middle": "chars each, with",
-      "heroLine2Suffix": "being non-text"
+      "topHoursLabel": "Top Active Hours",
+      "peakWeekdayLabel": "Peak Weekday",
+      "weekendRatio": "Weekend Ratio",
+      "weekendRatioDesc": "Messages on weekends"
+    },
+    "timeAnalysis": {
+      "memberTrendTitle": "Message Trend",
+      "memberTrendHint": "Monthly message volume by member"
+    },
+    "typeAnalysis": {
+      "textDepthTitle": "Text Depth Analysis",
+      "textTotal": "Text Messages",
+      "avgLength": "Avg Chars",
+      "medianLength": "Median Length",
+      "maxLength": "Max Length",
+      "percentiles": "Length Percentiles",
+      "shortMessages": "Short(≤5 chars)",
+      "essayMessages": "Long(≥30 chars)"
     }
   },
   "interaction": {
-    "mentionGraph": "Mention Interaction Graph",
     "layout": "Layout",
     "circular": "Circular",
     "force": "Force",
@@ -84,17 +119,9 @@
     "noInteraction": "No mention interaction data"
   },
   "relationship": {
-    "loading": "Analyzing relationship dynamics…",
-    "noIndex": {
-      "title": "Session Index Required",
-      "description": "Relationship analysis requires session index data. Please generate the session index from the overview page first."
-    },
     "empty": {
       "title": "No Relationship Data",
       "description": "No sessions found in the selected time range."
-    },
-    "overview": {
-      "title": "Overall Summary"
     },
     "monthly": {
       "title": "Monthly Breakdown",
@@ -106,11 +133,6 @@
       "hint": "Blue line shows {name}'s monthly initiative ratio; 50% line is the balanced baseline"
     },
     "hero": {
-      "monthPart": "{month}/{year}",
-      "timeRange": {
-        "singleMonth": "In {month},",
-        "range": "From {start} to {end},"
-      },
       "totalSessionsPrefix": "You had",
       "totalSessionsSuffix": "conversations in total",
       "initiativePrefix": "",
@@ -122,46 +144,28 @@
     "closer": "End Conversations",
     "closerTitle": "Conversation Closer",
     "closerHint": "Shows who sends the last message when a topic ends.",
-    "initiated": "Initiated {count} times",
-    "closed": "Closed {count} times",
-    "totalSessions": "{count} total sessions",
-    "times": " times",
     "noActivity": "No activity this month",
     "watermarkReport": "Relationship Report",
     "monthFormat": "{month}/{year}",
     "monthShortFormat": "{month}",
-    "monthDetail": "Init {init} / Close {close}",
     "iceBreaker": {
       "title": "Ice Breaker",
-      "hint": "Times breaking silence after 24+ hours of inactivity",
-      "count": "{count} ice breaks",
-      "total": "{count} total ice breaks"
+      "hint": "Times breaking silence after 24+ hours of inactivity"
     },
     "responseLatency": {
       "title": "Reply Speed",
       "hint": "Average time to reply after the other person sends a message",
-      "count": "{count} replies",
       "seconds": "{n}s",
-      "minutes": "{n} min",
       "minutesSeconds": "{m}m {s}s",
       "hours": "{n}h",
       "hoursMinutes": "{h}h {m}min"
     },
     "perseverance": {
       "title": "Perseverance",
-      "hint": "Times sending another message before the other person replied",
       "hintWithThreshold": "Times sending another message when the other person hasn't replied within {threshold}",
-      "thresholdMinutes": "{n} min",
-      "count": "{count} times",
-      "total": "{count} total",
-      "threshold": "Gap",
-      "empty": "No perseverance records with this threshold"
+      "thresholdMinutes": "{n} min"
     },
     "labels": {
-      "mutualPursuit": "Mutual Pursuit",
-      "silentGuardian": "Silent Guardian",
-      "devotedHeart": "Devoted Heart",
-      "distantBond": "Distant Bond",
       "wellMatched": "Well Matched",
       "missingYou": "{name} Misses You",
       "monologue": "{name}'s Monologue",

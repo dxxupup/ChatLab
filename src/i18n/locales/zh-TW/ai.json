@@ -1,23 +1,13 @@
 {
   "tab": {
     "chatExplorer": "對話式探索",
-    "sqlLab": "SQL 實驗室",
-    "featureInDev": "{name} 功能開發中",
-    "comingSoon": "敬請期待...",
-    "followNotice": "新功能上線通知，歡迎關注我的小紅書"
+    "sqlLab": "SQL 實驗室"
   },
   "chat": {
-    "welcome": {
-      "configReady": "✅ AI 服務已設定完成，可以開始對話了！",
-      "configNeeded": "**注意**：使用前請先在側邊欄底部的「設定」中設定 AI 服務 ⚙️"
-    },
-    "capture": "截圖對話",
     "scrollToBottom": "回到底部",
     "input": {
-      "placeholder": "輸入你的問題...",
       "placeholderWithSlash": "輸入你的問題，或輸入 / 選擇技能、輸入 {'@'} 選擇成員...",
       "placeholderWithActiveSkill": "已選擇 /{name}，請輸入具體問題...",
-      "removeSkill": "移除目前技能",
       "slashHint": "輸入 / 選擇技能",
       "useSkill": "選擇技能",
       "mentionHint": "輸入 {'@'} 選擇成員",
@@ -26,17 +16,18 @@
       "slashEmpty": "沒有符合的技能",
       "slashEmptyHint": "開啟技能管理匯入內建技能，或建立自訂技能",
       "manageSkills": "管理技能",
-      "previewTitle": "技能提示詞",
       "previewTagsLabel": "標籤",
       "previewToolsLabel": "工具",
       "previewUnavailable": "暫無可預覽的技能提示詞",
-      "presetMore": "更多",
-      "presetCollapse": "收起",
       "quickAsk": "快速提問",
       "editQuickAsk": "編輯快速提問",
       "send": "送出",
       "needMoreThanSkill": "只選擇技能還不能送出，請繼續輸入具體問題",
       "needQuestion": "請輸入問題後再送出"
+    },
+    "fork": {
+      "success": "已複製對話",
+      "failed": "複製對話失敗"
     },
     "backgroundTask": {
       "runningShort": "進行中",
@@ -46,48 +37,57 @@
       "return": "返回查看"
     },
     "message": {
-      "userAvatar": "使用者頭像",
-      "calling": "執行",
       "copy": {
         "tooltip": "複製 Markdown",
         "success": "Markdown 已複製到剪貼簿",
         "failed": "複製 Markdown 失敗"
       },
-      "tools": {
-        "get_chat_overview": "取得聊天概覽",
-        "search_messages": "搜尋聊天紀錄",
-        "deep_search_messages": "深度搜尋聊天紀錄",
-        "get_recent_messages": "取得最近訊息",
-        "get_member_stats": "取得成員統計",
-        "get_time_stats": "取得時間分佈",
-        "get_members": "取得成員列表",
-        "get_member_name_history": "取得暱稱歷史",
-        "get_conversation_between": "取得對話紀錄",
-        "get_message_context": "取得上下文",
-        "search_sessions": "搜尋會話",
-        "get_session_messages": "取得會話訊息",
-        "get_session_summaries": "取得會話摘要",
-        "response_time_analysis": "回覆時間分析",
-        "keyword_frequency": "關鍵詞頻率分析",
-        "message_type_breakdown": "訊息類型分佈",
-        "peak_chat_hours_by_member": "成員活躍時段",
-        "member_activity_trend": "成員活躍趨勢",
-        "silent_members": "沉默成員偵測",
-        "reply_interaction_ranking": "回覆互動排行",
-        "mutual_interaction_pairs": "互動頻繁成員對",
-        "member_message_length_stats": "訊息長度統計",
-        "daily_active_members": "每日活躍人數",
-        "conversation_initiator_stats": "話題發起者統計",
-        "activity_heatmap": "活躍度熱力圖",
-        "unanswered_messages": "未回覆訊息"
+      "process": {
+        "label": "執行過程",
+        "processing": "處理中",
+        "processed": "已處理"
+      },
+      "toolResult": {
+        "view": "查看結果",
+        "title": "傳送給 AI 的工具結果",
+        "copy": "複製結果",
+        "copySuccess": "工具結果已複製",
+        "copyFailed": "複製工具結果失敗",
+        "displayTruncated": "此歷史結果只保存了截斷版本；原本那一輪 AI 可能看到了更完整的內容。"
+      },
+      "edit": {
+        "tooltip": "編輯並重新生成",
+        "submit": "送出",
+        "overwriteSubsequent": "覆蓋後續所有對話"
+      },
+      "fork": {
+        "tooltip": "從此處複製對話"
+      },
+      "chart": {
+        "expand": "開啟大圖",
+        "empty": "暫無資料",
+        "rows": "{count} 行資料",
+        "truncated": "已截斷"
       },
       "generating": "正在產生回覆...",
+      "summary": {
+        "label": "上下文摘要",
+        "info": "以上對話已被壓縮為摘要以節省上下文空間"
+      },
+      "plan": {
+        "label": "分析計畫",
+        "evidenceNeeded": "所需證據",
+        "suggestedTools": "建議工具",
+        "successCriteria": "完成標準",
+        "noTools": "無"
+      },
       "think": {
         "labels": {
           "think": "已思考",
           "analysis": "分析",
           "reasoning": "推理",
           "reflection": "反思",
+          "planValidation": "產生計畫",
           "other": "思考（{tag}）"
         },
         "loading": "思考中",
@@ -114,31 +114,18 @@
     "thinking": {
       "processingResult": "正在整理結果",
       "called": "已執行：",
-      "analyzing": "正在分析問題..."
+      "analyzing": "正在分析問題...",
+      "compressing": "正在壓縮上下文..."
     },
     "statusBar": {
-      "preset": {
-        "default": "預設",
-        "groupTitle": "群聊提示詞預設",
-        "privateTitle": "私聊提示詞預設",
-        "manage": "管理提示詞"
-      },
       "model": {
-        "title": "AI 模型設定",
-        "notConfigured": "AI 尚未設定",
-        "empty": "尚無設定",
-        "manage": "管理模型",
-        "switchFailed": "切換模型失敗"
-      },
-      "messageLimit": {
-        "label": "訊息上限：",
-        "title": "設定每次送出的最大訊息數"
+        "notConfigured": "AI 尚未設定"
       },
       "agent": {
         "label": "Agent",
         "contextTokens": "上下文",
-        "stats": "段 {segment} · 標籤 {tags}",
         "phase": {
+          "compressing": "壓縮上下文",
           "preparing": "準備中",
           "thinking": "思考中",
           "tool_running": "工具執行中",
@@ -148,6 +135,7 @@
           "error": "錯誤"
         },
         "phaseShort": {
+          "compressing": "壓縮",
           "preparing": "準備",
           "thinking": "思考",
           "tool_running": "工具",
@@ -157,7 +145,22 @@
           "error": "錯誤"
         }
       },
-      "tokenUsageTitle": "本次對話累計 Token 用量",
+      "thinking": {
+        "title": "思考強度",
+        "tooltip": "設定模型的思考強度",
+        "level": {
+          "default": "預設",
+          "off": "關閉",
+          "minimal": "極低",
+          "low": "低",
+          "medium": "中",
+          "high": "高",
+          "xhigh": "最高",
+          "auto": "自動"
+        }
+      },
+      "tokenUsageTitle": "累計 Token 用量",
+      "cacheHit": "快取命中",
       "export": {
         "label": "匯出",
         "title": "匯出當前對話"
@@ -167,14 +170,9 @@
         "title": "開啟當前 AI 日誌檔案",
         "openFailed": "開啟日誌失敗",
         "openFailedDesc": "請稍後重試"
-      },
-      "status": {
-        "connected": "AI 已連線",
-        "notConfigured": "請先在全域設定中設定 AI 服務"
       }
     },
     "conversation": {
-      "title": "AI 對話紀錄",
       "newChat": "新對話",
       "newConversation": "新建對話",
       "empty": "暫無歷史紀錄",
@@ -185,6 +183,7 @@
         "last30Days": "最近 30 天"
       },
       "rename": "重新命名",
+      "copyId": "複製 ID",
       "delete": "刪除",
       "export": {
         "createdAt": "建立時間",
@@ -218,20 +217,43 @@
       "emptyHint": "傳送問題後，相關紀錄會顯示在這裡",
       "totalRecords": "共 {count} 筆紀錄",
       "loadMore": "載入更多"
+    },
+    "evidence": {
+      "title": "依據證據",
+      "query": "問題",
+      "criteria": "判定標準",
+      "empty": "未找到明確可計入的證據",
+      "totalSources": "共 {count} 條來源",
+      "mode": {
+        "auto": "自動",
+        "hybrid": "語意 + 關鍵字",
+        "semantic": "語意檢索",
+        "keyword": "關鍵字檢索"
+      },
+      "group": {
+        "included": "計入證據",
+        "excluded": "不計入",
+        "uncertain": "不確定"
+      },
+      "warning": {
+        "criteria_missing": "未提供判定標準，分組結果較為保守",
+        "keywords_missing_for_hybrid": "未提供關鍵字，已退化為純語意檢索",
+        "keywords_required_for_keyword_mode": "關鍵字模式需要提供關鍵字",
+        "semantic_unavailable": "語意索引不可用，已改用關鍵字檢索",
+        "keyword_unavailable": "關鍵字檢索不可用",
+        "semantic_partial": "語意檢索結果可能不完整"
+      }
     }
   },
   "sqlLab": {
     "editor": {
       "errorEmptySQL": "請輸入 SQL 語句",
       "placeholder": "輸入 SQL 查詢語句...",
-      "promptTip": "用自然語言描述你的查詢需求，系統會自動生成並執行 SQL",
       "tip": "提示：雙擊左側欄位名可插入到 SQL",
       "history": "歷史",
-      "aiGenerate": "AI 產生",
       "generateAndRun": "生成並執行",
       "switchToSQLMode": "切換為 SQL 輸入模式",
       "switchToPromptMode": "切換為 Prompt 輸入模式",
-      "shortcut": "Ctrl/⌘ + Enter 執行",
       "run": "執行"
     },
     "schema": {
@@ -246,7 +268,6 @@
       "viewChat": "檢視聊天紀錄",
       "summarize": "整理摘要",
       "pageSize": "每頁",
-      "pageInfo": "第 {current} / {total} 頁",
       "emptyResult": "查詢結果為空",
       "initialState": "輸入 SQL 語句後執行，即可查看結果",
       "initialHint": "僅支援唯讀查詢（SELECT / WITH），建議添加 LIMIT 以提升效能",
@@ -255,18 +276,14 @@
       "errorSummary": "總結失敗"
     },
     "generate": {
-      "title": "AI 產生 SQL",
-      "description": "用自然語言描述你想查詢的內容，AI 會自動產生對應的 SQL 語句。",
       "placeholder": "例如：查找發言最多的前 10 個成員、統計每天的訊息數量、找出包含「買房」關鍵字的訊息...",
       "errorEmptyPrompt": "請輸入查詢需求",
       "errorGenerate": "AI 產生失敗",
+      "errorTokenLimit": "模型輸出達到 token 上限，未能生成完整回覆（可能思考消耗了過多 token）",
       "aiOutput": "AI 輸出",
+      "thinking": "思考中…",
+      "thinkingProcess": "思考過程",
       "waitingAI": "等待 AI 回應...",
-      "sqlStatement": "SQL 語句",
-      "explanation": "說明",
-      "generateSQL": "產生 SQL",
-      "useSQL": "使用 SQL",
-      "run": "執行",
       "defaultPromptPrivate": "請統計最近1年私聊中雙方各自的：訊息總數、訊息占比、活躍天數、日均訊息數（按活躍天計算）、首次發言時間、最近發言時間；依訊息總數降序顯示。",
       "defaultPromptGroup": "請統計最近1年群聊中各成員的：訊息總數、訊息占比、活躍天數、日均訊息數（按活躍天計算）、文字訊息占比；顯示成員名稱並依訊息總數降序，返回前20名。"
     },
@@ -309,15 +326,12 @@
       "localeHint": "不選代表套用全部語言",
       "presetQuestions": "預設問題",
       "addQuestion": "新增問題...",
-      "builtinTools": "內建工具",
       "coreTools": "核心工具",
       "coreToolsHint": "基礎資料取得工具，始終啟用，無法關閉",
       "analysisTools": "分析工具",
       "analysisToolsHint": "按需開啟的分析能力，勾選後才會對 AI 可用",
       "selectAll": "全選",
       "deselectAll": "全不選",
-      "builtinToolsHint": "若未勾選任何工具，代表全部可用；勾選後僅開放所選工具。",
-      "toolGroupQuery": "資料查詢",
       "resetDefault": "還原預設",
       "create": "建立"
     },
@@ -330,7 +344,6 @@
       "localHint": "管理已導入的助手，可配置或刪除",
       "marketHint": "瀏覽助手市場，導入後即可使用和自由編輯",
       "default": "預設",
-      "updateAvailable": "更新可用",
       "reimport": "重新導入",
       "imported": "已導入",
       "import": "導入",
@@ -348,6 +361,18 @@
     },
     "fallbackName": "助手",
     "duplicateSuffix": "（副本）",
+    "upgrade": {
+      "title": "預設助手有新版本",
+      "message": "目前的預設助手來自舊版範本，且包含自訂內容。ChatLab 會先將它儲存為「{backupName}」，再切換到最新版本。",
+      "backupName": "{name}（舊版備份）",
+      "skipHint": "跳過後，目前的範本版本將不再提醒。",
+      "skip": "跳過",
+      "skipFailed": "跳過失敗",
+      "confirm": "備份並升級",
+      "success": "預設助手已升級",
+      "successDescription": "舊設定已儲存為「{name}」",
+      "failed": "升級失敗"
+    },
     "toast": {
       "loadFailed": "載入失敗",
       "createSuccess": "建立成功",
@@ -366,12 +391,12 @@
       "get_message_context": "取得訊息上下文",
       "get_conversation_between": "取得兩人對話",
       "get_members": "取得成員列表",
+      "get_schema": "查看資料表結構",
       "get_member_stats": "取得成員統計",
       "get_member_name_history": "取得成員改名歷史",
       "get_time_stats": "取得時間統計",
-      "search_sessions": "搜尋會話",
-      "get_session_messages": "取得會話訊息",
-      "get_session_summaries": "取得會話摘要",
+      "get_segment_messages": "取得段落訊息",
+      "get_segment_summaries": "取得段落摘要",
       "message_type_breakdown": "訊息類型分佈",
       "peak_chat_hours_by_member": "成員活躍時段",
       "member_activity_trend": "成員活躍趨勢",
@@ -384,7 +409,9 @@
       "conversation_initiator_stats": "話題發起者統計",
       "activity_heatmap": "活躍度熱力圖",
       "response_time_analysis": "回應時間分析",
-      "keyword_frequency": "高頻詞統計"
+      "keyword_frequency": "高頻詞統計",
+      "render_chart": "生成動態圖表",
+      "semantic_search_current_chat": "檢索聊天歷史"
     }
   },
   "skill": {
@@ -396,7 +423,6 @@
       },
       "localHint": "管理已導入的技能，可配置或刪除",
       "marketHint": "瀏覽技能市場，導入後即可使用和自由編輯",
-      "updateAvailable": "更新可用",
       "reimport": "重新導入",
       "imported": "已導入",
       "import": "導入",
@@ -410,18 +436,12 @@
       "loadFailed": "載入失敗，請檢查網路連線",
       "retry": "重試"
     },
-    "block": {
-      "label": "技能：{name}"
-    },
     "active": {
       "label": "主動呼叫技能：{name}"
     }
   },
   "lab": {
-    "basicTools": "基礎工具",
     "toolTest": {
-      "selectTool": "選擇工具",
-      "selectToolPlaceholder": "請選擇一個工具...",
       "coreTools": "核心工具",
       "analysisTools": "分析工具",
       "parameters": "參數",

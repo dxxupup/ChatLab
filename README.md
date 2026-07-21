@@ -1,33 +1,71 @@
 <div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="https://github.com/ChatLab/ChatLab/raw/main/public/images/banner-light.png">
+    <img src="https://github.com/ChatLab/ChatLab/raw/main/public/images/banner.png" alt="ChatLab" title="ChatLab" width="500" />
+  </picture>
 
-<img src="./public/images/chatlab.svg" alt="ChatLab" title="ChatLab" width="300" />
+Your chat history, finally yours.
 
-Rediscover your social memories with private, AI-powered analysis.
+English | [简体中文](./README.zh-CN.md)
 
-English | [简体中文](./docs/README.zh-CN.md) | [繁體中文](./docs/README.zh-TW.md) | [日本語](./docs/README.ja-JP.md)
-
-[Official Website](https://chatlab.fun/) · [Download](https://chatlab.fun/?type=download) · [Documentation](https://chatlab.fun/usage/) · [Roadmap](https://chatlabfun.featurebase.app/roadmap) · [Issue Submission](https://github.com/ChatLab/ChatLab/issues)
+[Official Website](https://chatlab.fun/) · [Docs](https://docs.chatlab.fun/) · [Quick Start](https://docs.chatlab.fun/usage/quick-start) · [Roadmap](https://chatlab.fun/roadmap/tasks) · [Releases](https://github.com/ChatLab/ChatLab/releases)
 
 </div>
 
 ChatLab is an open-source desktop app for understanding your social conversations. It combines a flexible SQL engine with AI agents so you can explore patterns, ask better questions, and extract insights from chat data, all on your own machine.
 
-Currently supported: **WhatsApp, LINE, WeChat, QQ, Discord, Instagram, and Telegram**. Coming next: **iMessage, Messenger, and KakaoTalk**.
+Currently supported: **WhatsApp, LINE, QQ, Discord, Instagram, Telegram, iMessage, and Google Chat**. Coming next: **Messenger and KakaoTalk**.
+
+> New install? Start here: [Getting started](https://docs.chatlab.fun/usage/quick-start)
 
 ## Core Features
 
 - 🚀 **Built for large histories**: Stream parsing and multi-worker processing keep imports and analysis responsive, even at million-message scale.
 - 🔒 **Private by default**: Your chat data and settings stay local. No mandatory cloud upload of raw conversations.
-- 🤖 **AI that can actually operate on data**: Agent + Function Calling workflows can search, summarize, and analyze chat records with context.
+- 🤖 **AI that can actually operate on data**: Agent + Function Calling workflows (24+ tools) can search, summarize, and analyze chat records with context.
 - 📊 **Insight-rich visual views**: See trends, time patterns, interaction frequency, rankings, and more in one place.
 - 🧩 **Cross-platform normalization**: Different export formats are mapped into a unified model so you can analyze them consistently.
+
+## Installation
+
+### Desktop App
+
+Download the installer for your OS from the [official website](https://chatlab.fun/?type=download) or [GitHub Releases](https://github.com/ChatLab/ChatLab/releases), then double-click to install.
+
+### CLI
+
+Requires Node.js ≥ 20.
+
+```bash
+npm i chatlab-cli -g
+```
+
+Start ChatLab:
+
+```bash
+chatlab start            # Start API + Web UI, auto-open in browser
+chatlab start --no-open  # Start API + Web UI, skip auto-open
+chatlab start --headless # API only, no Web UI (for scripts / AI Agents)
+```
+
+Common options: `--port <port>` (default 3110), `--host <address>`, `--token <token>`.
+
+To run as a persistent background service (auto-start on login + auto-restart on crash):
+
+```bash
+chatlab start --daemon   # Install as system service (macOS / Linux)
+chatlab status           # Check service status
+chatlab stop             # Stop and uninstall service
+```
+
+For a full walkthrough, see the [Quick Start guide](https://docs.chatlab.fun/usage/quick-start).
 
 ## Usage Guides
 
 - [Download Guide](https://chatlab.fun/?type=download)
-- [Chat Record Export Guide](https://chatlab.fun/usage/how-to-export.html)
-- [Standardized Format Specification](https://chatlab.fun/standard/chatlab-format.html)
-- [Troubleshooting Guide](https://chatlab.fun/usage/troubleshooting.html)
+- [Chat Record Export Guide](https://docs.chatlab.fun/usage/how-to-export)
+- [Standardized Format Specification](https://docs.chatlab.fun/standard/chatlab-format)
+- [Troubleshooting Guide](https://docs.chatlab.fun/usage/troubleshooting)
 
 ## Preview
 
@@ -35,7 +73,13 @@ For more previews, please visit the official website: [chatlab.fun](https://chat
 
 ![Preview Interface](/public/images/intro_en.png)
 
-## System Architecture
+## Architecture Overview
+
+ChatLab is a pnpm monorepo built on Electron + Vue 3 + Nuxt UI + Tailwind CSS. Core business logic lives in shared packages (`@openchatlab/core`, `@openchatlab/node-runtime`, `@openchatlab/tools`), consumed by both the desktop app and the CLI service — so they stay in sync.
+
+Data flows in five stages: **format detection → stream parsing → local persistence → SQL + AI query → visualization**.
+
+For a deep dive, see the [architecture documentation](https://docs.chatlab.fun/intro).
 
 ### Architecture Principles
 
@@ -44,44 +88,35 @@ For more previews, please visit the official website: [chatlab.fun](https://chat
 - **Composable intelligence**: AI features are assembled through Agent + Tool Calling, not hard-coded into one model path.
 - **Schema-first evolution**: Import, query, analysis, and visualization share a consistent data model that scales with new features.
 
-### Runtime Architecture
-
-- **Main Process (control plane)**: `electron/main/index.ts` handles lifecycle and windows. `electron/main/ipc/` defines domain-scoped IPC, while `electron/main/ai/` and `electron/main/i18n/` provide shared AI and localization services.
-- **Worker Layer (compute plane)**: `electron/main/worker/` runs import, indexing, and query tasks via `workerManager`, keeping CPU-heavy work off the UI thread.
-- **Renderer Layer (interaction plane)**: Vue 3 + Nuxt UI + Tailwind CSS drive management, private chat, group chat, and analysis interfaces. `electron/preload/index.ts` exposes tightly scoped APIs for secure process boundaries.
-
-### Data Pipeline
-
-1. **Ingestion**: `parser/` detects file format and dispatches to the matching parser module.
-2. **Persistence**: Stream-based writes populate core local entities: sessions, members, and messages.
-3. **Indexing**: Session- and time-oriented indexes are built for timeline navigation and retrieval.
-4. **Query & Analysis**: `worker/query/*` powers activity metrics, interaction analysis, SQL Lab, and AI-assisted exploration.
-5. **Presentation**: The renderer turns query output into charts, rankings, timelines, and conversational analysis flows.
-
-### Extensibility & Reliability
-
-- **Pluggable parser architecture**: Adding a new import source is mostly an extension in `parser/formats/*`, without reworking downstream query logic.
-- **Full + incremental import paths**: `streamImport.ts` and `incrementalImport.ts` support both first-time onboarding and ongoing updates.
-- **Modular IPC boundaries**: Domain-based IPC segmentation reduces cross-layer coupling and limits permission spread.
-- **Unified i18n evolution**: Main and renderer processes share an i18n system that can evolve with product scope.
-
 ---
 
 ## Local Development
 
+For complete contributor instructions, see the [Development Guide](https://docs.chatlab.fun/contributing/development).
+
 ### Requirements
 
-- Node.js >= 20
-- pnpm
+- Node.js >= 24 < 25
+- pnpm >= 9 < 10
 
 ### Setup
 
 ```bash
-# install dependencies
+# Install dependencies
 pnpm install
 
-# run electron app in dev mode
+# Start dev mode — prompts you to choose which app to launch
 pnpm dev
+```
+
+Or launch a specific target directly:
+
+```bash
+pnpm dev:desktop   # Electron desktop app
+pnpm dev:cli-web   # CLI Web frontend + local server
+pnpm dev:web-wasm  # Browser-only Web WASM
+pnpm dev:serve     # CLI server only
+pnpm docs:dev      # Docs site
 ```
 
 If Electron encounters exceptions during startup, you can try using `electron-fix`:
@@ -89,7 +124,6 @@ If Electron encounters exceptions during startup, you can try using `electron-fi
 ```bash
 npm install electron-fix -g
 electron-fix start
-
 ```
 
 ## Privacy Policy & User Agreement
@@ -103,6 +137,7 @@ Please follow these principles before submitting a Pull Request:
 - Obvious bug fixes can be submitted directly.
 - For new features, please submit an Issue for discussion first; **PRs submitted without prior discussion will be closed**.
 - Keep one PR focused on one task; if changes are extensive, consider splitting them into multiple independent PRs.
+- For local setup, repository structure, checks, and AI collaboration notes, see the [Development Guide](https://docs.chatlab.fun/contributing/development).
 
 Thanks to all contributors:
 

@@ -13,7 +13,7 @@
   },
   "filter": {
     "messageId": "Message ID",
-    "memberNotSupported": "Member (not supported)",
+    "memberPlaceholder": "Member",
     "keywordsPlaceholder": "Keywords, comma separated, Enter to search",
     "startDate": "Start Date",
     "endDate": "End Date",
@@ -21,8 +21,8 @@
     "filter": "Filter"
   },
   "timeline": {
-    "timeline": "Sessions",
-    "noSessions": "No sessions",
+    "timeline": "Summaries",
+    "noSessions": "No summaries",
     "generateSummary": "Summarize",
     "tooFewMessages": "Too few"
   },
@@ -30,6 +30,7 @@
   "summaryUnknownError": "Unknown error",
   "batchSummary": {
     "title": "Batch Generate Summaries",
+    "trigger": "Batch",
     "byRange": "By Range",
     "byTime": "By Time",
     "selectRange": "Select Range",
@@ -65,25 +66,8 @@
   },
   "messageItem": {
     "viewContext": "View Context",
-    "contextTitle": "Message Context (10 before and after)",
-    "noContext": "No context available",
-    "replyTo": "Reply to"
-  },
-  "sessionIndex": {
-    "title": "Session Index",
-    "subtitle": "For timeline navigation in chat records",
-    "notGenerated": "Session index not generated",
-    "notGeneratedHint": "After generating session index, you can use timeline navigation in the chat record viewer to quickly jump to different sessions.",
-    "whatIsIt": "What session index does:",
-    "benefit1": "Identify conversation boundaries based on message time gaps",
-    "benefit2": "Provide timeline navigation in chat record viewer",
-    "benefit3": "Enable AI analysis to understand conversation context",
-    "generated": "Session index generated",
-    "sessionCount": "{count} sessions identified",
-    "regenerateHint": "You can regenerate the index if you've adjusted the session gap threshold.",
-    "generate": "Generate Index",
-    "regenerate": "Regenerate",
-    "generating": "Generating...",
-    "cancel": "Cancel"
+    "replyTo": "Reply to",
+    "expandMessyContent": "Show full content",
+    "collapseMessyContent": "Collapse"
   }
 }

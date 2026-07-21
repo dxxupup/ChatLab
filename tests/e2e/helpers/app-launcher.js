@@ -11,6 +11,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const os = require('node:os')
 const net = require('node:net')
+const { createRequire } = require('node:module')
 
 const DEFAULT_START_PORT = 9222
 const DEFAULT_MAX_PORT_RETRIES = 100
@@ -126,6 +127,20 @@ function releaseReservation(reservationServer) {
   safeCloseServer(reservationServer)
 }
 
+function resolveElectronExecutable(deps = {}) {
+  if (deps.electronPath) return deps.electronPath
+
+  const desktopPackageJson = path.resolve(__dirname, '../../../apps/desktop/package.json')
+  const requireElectron = deps.requireElectron || createRequire(desktopPackageJson)
+
+  try {
+    const electronModule = requireElectron('electron')
+    return typeof electronModule === 'string' ? electronModule : ''
+  } catch (error) {
+    throw new Error(`[AppLauncher] 无法解析 Electron 可执行文件: ${error.message}`)
+  }
+}
+
 /**
  * 启动 Electron 应用
  */
@@ -142,6 +157,7 @@ async function launchApp(options = {}, deps = {}) {
   const portProbeTimeoutMs = options.portProbeTimeoutMs ?? DEFAULT_PORT_PROBE_TIMEOUT_MS
   const startupWaitTime = options.startupWaitTime ?? DEFAULT_STARTUP_WAIT_MS
   const forceKillTimeoutMs = options.forceKillTimeoutMs ?? DEFAULT_FORCE_KILL_TIMEOUT_MS
+  const envOverrides = options.envOverrides || {}
 
   if (!port) {
     const reservation = await findPortFn(startPort, maxPortRetries, 0, {
@@ -164,18 +180,16 @@ async function launchApp(options = {}, deps = {}) {
   if (!fsImpl.existsSync(userDataDir)) {
     fsImpl.mkdirSync(userDataDir, { recursive: true })
   }
+  const isolatedSystemDataDir = path.join(userDataDir, '.chatlab')
 
-  const appPath = path.resolve(__dirname, '../../..')
+  const appPath = path.resolve(__dirname, '../../../apps/desktop')
   if (!fsImpl.existsSync(appPath)) {
     throw new Error(`[AppLauncher] 应用目录不存在: ${appPath}`)
   }
 
-  const electronExe =
-    process.platform === 'win32'
-      ? path.resolve(appPath, 'node_modules/.bin/electron.cmd')
-      : path.resolve(appPath, 'node_modules/.bin/electron')
+  const electronExe = resolveElectronExecutable(deps)
 
-  if (!fsImpl.existsSync(electronExe)) {
+  if (!electronExe || !fsImpl.existsSync(electronExe)) {
     throw new Error(`Electron 可执行文件不存在: ${electronExe}`)
   }
 
@@ -193,9 +207,15 @@ async function launchApp(options = {}, deps = {}) {
       stdio: 'inherit',
       env: {
         ...process.env,
+        // ChatLab resolves canonical data from the OS home directory rather than Electron's userData path.
+        // Override both home variants and the configurable data root so E2E cannot read or mutate real user state.
+        HOME: userDataDir,
+        USERPROFILE: userDataDir,
+        CHATLAB_DATA_DIR: path.join(isolatedSystemDataDir, 'data'),
         TEST_MODE: 'true',
         CHATLAB_E2E_USER_DATA_DIR: userDataDir,
         ELECTRON_ENABLE_LOGGING: '1',
+        ...envOverrides,
       },
     })
   } finally {
@@ -261,5 +281,6 @@ module.exports = {
     findAvailablePortWithReservation,
     terminateProcess,
     releaseReservation,
+    resolveElectronExecutable,
   },
 }

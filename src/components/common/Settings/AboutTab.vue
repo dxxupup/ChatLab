@@ -2,59 +2,89 @@
 import { ref, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
+import { useToast } from '@/composables/useToast'
 import { useSettingsStore } from '@/stores/settings'
+import { useLayoutStore } from '@/stores/layout'
+import { useAuthStore } from '@/stores/auth'
+import { usePlatformService } from '@/services'
+import { IS_ELECTRON } from '@/utils/platform'
 
 const { t } = useI18n()
+const toast = useToast()
+const router = useRouter()
 const settingsStore = useSettingsStore()
+const layoutStore = useLayoutStore()
+const authStore = useAuthStore()
 const { debugMode } = storeToRefs(settingsStore)
 
-// 版本信息
+const showLogout = !IS_ELECTRON && authStore.isAuthenticated
+
+function handleLogout() {
+  layoutStore.closeSettings()
+  authStore.logout()
+  router.push({ name: 'login' })
+}
+
 const appVersion = ref(t('common.loading'))
 const isCheckingUpdate = ref(false)
-
-// 匿名统计开关
 const analyticsEnabled = ref(true)
 
-// 获取应用版本
 async function loadAppVersion() {
   try {
-    appVersion.value = await window.api.app.getVersion()
+    appVersion.value = await usePlatformService().getVersion()
   } catch (error) {
-    console.error('获取版本号失败:', error)
+    console.error('Failed to get version:', error)
     appVersion.value = t('settings.about.unknown')
   }
 }
 
-// 加载统计开关状态
 async function loadAnalyticsEnabled() {
   try {
-    analyticsEnabled.value = await window.api.app.getAnalyticsEnabled()
+    analyticsEnabled.value = await usePlatformService().getAnalyticsEnabled()
   } catch (error) {
-    console.error('获取统计开关状态失败:', error)
+    console.error('Failed to get analytics status:', error)
   }
 }
 
-// 切换统计开关
 async function toggleAnalytics(enabled: boolean) {
   try {
-    await window.api.app.setAnalyticsEnabled(enabled)
+    await usePlatformService().setAnalyticsEnabled(enabled)
     analyticsEnabled.value = enabled
   } catch (error) {
-    console.error('设置统计开关失败:', error)
+    console.error('Failed to set analytics:', error)
   }
 }
 
-// 检查更新
-function checkUpdate() {
+async function checkUpdate() {
   isCheckingUpdate.value = true
-  window.api.app.checkUpdate()
-  // 3 秒后恢复按钮状态（实际检查结果由主进程 dialog 显示）
-  setTimeout(() => {
-    isCheckingUpdate.value = false
-  }, 3000)
+  try {
+    const result = await usePlatformService().checkUpdate()
+    if (!result) return
+
+    if (result.error) {
+      toast.fail(t('settings.about.updateCheckFailed', { error: result.error }))
+    } else if (result.hasUpdate) {
+      toast.success(t('settings.about.newVersionAvailable', { version: result.latestVersion }), {
+        duration: 15_000,
+        description: IS_ELECTRON ? undefined : t('settings.about.webUpdateHint'),
+      })
+    } else {
+      toast.success(t('settings.about.upToDate'))
+    }
+  } catch (error) {
+    console.error('Update check failed:', error)
+  } finally {
+    if (IS_ELECTRON) {
+      setTimeout(() => {
+        isCheckingUpdate.value = false
+      }, 3000)
+    } else {
+      isCheckingUpdate.value = false
+    }
+  }
 }
 
-// 组件挂载时加载数据
 onMounted(() => {
   loadAppVersion()
   loadAnalyticsEnabled()
@@ -127,6 +157,25 @@ onMounted(() => {
             </p>
           </div>
           <USwitch :model-value="debugMode" @update:model-value="settingsStore.setDebugMode" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 退出登录（仅 Server 模式已认证时显示） -->
+    <div v-if="showLogout">
+      <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+        <UIcon name="i-heroicons-arrow-right-on-rectangle" class="h-4 w-4 text-red-500" />
+        {{ t('common.login.logoutTitle') }}
+      </h3>
+      <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('common.login.logoutDesc') }}</p>
+          </div>
+          <UButton color="error" variant="soft" size="sm" @click="handleLogout">
+            <UIcon name="i-heroicons-arrow-right-on-rectangle" class="mr-1 h-4 w-4" />
+            {{ t('common.login.logout') }}
+          </UButton>
         </div>
       </div>
     </div>

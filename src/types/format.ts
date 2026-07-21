@@ -11,7 +11,7 @@ import type { ChatPlatform, ChatType, MessageType, MemberRole } from './base'
  * ChatLab 格式版本信息
  */
 export interface ChatLabHeader {
-  version: string // 格式版本，如 "0.0.1"
+  version: string // 格式版本，如 "0.0.2"
   exportedAt: number // 导出时间戳（秒）
   generator?: string // 生成工具名称（可选）
   description?: string // 描述信息（可选，自定义内容）
@@ -37,6 +37,7 @@ export interface ChatLabMeta {
   groupId?: string // 群ID（可选，仅群聊）
   groupAvatar?: string // 群头像（base64 Data URL，可选）
   ownerId?: string // 所有者/导出者的 platformId（可选）
+  sourceSessionId?: string // ChatLab 导出来源会话 ID（可选）
 }
 
 /**
@@ -150,6 +151,9 @@ export interface MergeResult {
  * 支持组合查询：多个条件可同时生效
  */
 export interface ChatRecordQuery {
+  /** 指定要查看的会话；未提供时使用当前页面会话 */
+  sessionId?: string
+
   /** 定位到指定消息（初始加载时以此消息为中心） */
   scrollToMessageId?: number
 

@@ -1,14 +1,8 @@
 {
   "wordcloud": {
     "loading": "正在分析詞頻...",
-    "sidebar": {
-      "filter": "篩選條件",
-      "style": "樣式設定"
-    },
     "stats": {
-      "messagesLabel": "訊息數",
       "wordsLabel": "總詞數",
-      "uniqueLabel": "不重複詞數",
       "clickHint": "提示：點擊詞雲可查看相關訊息"
     },
     "config": {
@@ -17,8 +11,7 @@
       "userFilter": "使用者篩選",
       "posFilter": "詞性過濾",
       "enableStopwords": "過濾停用詞",
-      "dict": "分詞詞庫",
-      "advanced": "進階設定"
+      "dict": "分詞詞庫"
     },
     "size": {
       "small": "小",
@@ -45,7 +38,7 @@
       "download": "下載詞庫",
       "download_zh-CN": "下載簡體詞庫",
       "download_zh-TW": "下載繁體詞庫",
-      "needDownload": "使用詞雲分析需要先下載分詞詞庫",
+      "needDownload": "詞雲已使用內建分詞結果顯示。下載中文詞庫可提升分詞準確度。",
       "downloadHint": "~8MB",
       "downloadSuccess": "詞庫下載成功",
       "downloadFailed": "詞庫下載失敗",
@@ -56,7 +49,7 @@
     }
   },
   "keywords": {
-    "title": "🔍 關鍵字排行榜",
+    "title": "關鍵字排行榜",
     "description": "分析群聊中的關鍵字使用情況，也能自訂不同榜單",
     "countTemplate": "共 {count} 位成員",
     "templateLabel": "範本：",
@@ -82,8 +75,6 @@
       "templateNamePlaceholder": "如：正能量",
       "keywords": "關鍵字",
       "keywordPlaceholder": "輸入後按 Enter 新增",
-      "cancel": "取消",
-      "save": "儲存",
       "update": "更新"
     },
     "templates": {
@@ -125,25 +116,21 @@
     }
   },
   "hotRepeat": {
-    "title": "🔥 熱門複讀",
+    "title": "熱門複讀",
     "loading": "正在載入複讀資料...",
     "description": "單次複讀參與人數最多的內容",
     "countTemplate": "共 {count} 筆熱門複讀",
     "people": "{count}人",
     "times": "{count} 次",
-    "colon": "：",
     "viewChat": "檢視聊天紀錄",
     "empty": "暫無複讀資料"
   },
   "topicProfile": {
-    "dateAll": "全部訊息",
-    "dateNow": "至今",
     "heroPrefix": "共分析了",
     "heroMiddle": "則訊息，",
     "heroMiddleSecond": "產生了",
     "heroSuffix": "個不同詞彙",
     "topTopicsPrefix": "你們最愛聊：",
-    "topKeywords": "熱門關鍵詞",
     "hotTopic": "熱門話題",
     "hotTopicDesc": "出現了 {count} 次",
     "richness": "詞彙豐富度",
@@ -169,49 +156,29 @@
     "sharedTopics": "共同話題"
   },
   "catchphrase": {
-    "title": "💬 口頭禪分析",
+    "title": "群成員口頭禪",
+    "description": "看看每位成員最具代表性的重複短句",
+    "memberTitle": "{name}的口頭禪",
+    "memberDescription": "依出現次數查看這位成員最常說的話",
     "loading": "正在分析口頭禪資料...",
-    "description": "已分析 {count} 位成員的高頻發言",
-    "countTemplate": "共 {count} 位成員",
     "times": "{count} 次",
+    "memberCount": "共 {count} 位成員",
+    "phraseCount": "共 {count} 條口頭禪",
+    "viewChat": "查看相關訊息",
     "empty": {
-      "title": "暫無口頭禪資料",
-      "description": "目前篩選條件下沒有足夠的重複發言用於產生詞雲"
-    },
-    "stats": {
-      "phrasesLabel": "高頻短語",
-      "totalLabel": "總使用次數",
-      "clickHint": "提示：點擊可查看相關訊息"
-    },
-    "viewMode": {
-      "list": "列表",
-      "wordcloud": "詞雲"
-    },
-    "phraseCount": "{count} 條口頭禪",
-    "topN": "顯示數量"
+      "title": "暫無口頭禪資料"
+    }
   },
   "languagePreference": {
     "loading": "正在分析語言偏好...",
     "empty": "暫無足夠的文字訊息進行語言分析",
     "card": {
-      "sharedWordsLabel": "共同高頻詞",
-      "syncSubtext": "基於詞性分佈的說話方式相似度",
-      "warmthWarm": "暖",
-      "warmthCrisp": "幹練",
-      "warmthBalanced": "自然",
-      "expressionLabel": "你們的表達充滿了",
       "diversityTitle": "詞彙深度",
       "diversityDesc": "不重複詞彙佔比",
       "styleTitle": "聊天氣質",
       "styleDesc": "基於詞性分佈推導的表達風格",
       "punctTitle": "標點性格",
       "punctDesc": "最常用的標點風格",
-      "punctTopTitle": "標點符號 TOP5",
-      "punctTopDesc": "各自最常使用的標點符號",
-      "modalTopTitle": "語氣詞 TOP5",
-      "modalTopDesc": "各自最常使用的語氣詞",
-      "sharedWordsTitle": "共同高頻詞",
-      "sharedWordsDesc": "雙方都高頻使用的詞彙",
       "watermark": "語言偏好 · Language Preference",
       "radarFactual": "事實性",
       "radarActive": "行動感",
@@ -257,15 +224,6 @@
       "personalityFreeflow": "意識流型",
       "personalityPrecise": "嚴謹規範型",
       "empty": "暫無標點資料"
-    },
-    "sync": {
-      "title": "語言同頻度",
-      "description": "基於詞性分佈的說話方式相似度",
-
-      "labelSoulmate": "靈魂伴侶",
-      "labelHighSync": "高度默契",
-      "labelUnique": "各有特色",
-      "labelDiverse": "風格迥異"
     }
   }
 }

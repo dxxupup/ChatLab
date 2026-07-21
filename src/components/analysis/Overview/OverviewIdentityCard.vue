@@ -8,10 +8,12 @@ import { CalendarComponent, TooltipComponent, VisualMapComponent } from 'echarts
 import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 import type { AnalysisSession, MessageType } from '@/types/base'
-import type { DailyActivity, HourlyActivity, WeekdayActivity } from '@/types/analysis'
+import type { DailyActivity, HourlyActivity } from '@/types/analysis'
 import { formatDateRange } from '@/utils'
-import { ThemeCard } from '@/components/UI'
+import { ReportCard } from '@/components/UI'
 import { useOverviewStatistics } from '@/composables/analysis/useOverviewStatistics'
+import { getOverviewCalendarRange, resolveOverviewTimeRange } from '@/composables/analysis/overviewTimeRange'
+import { useWeekdayActivity } from '@/composables/analysis/useWeekdayActivity'
 import OverviewStatCards from './OverviewStatCards.vue'
 
 echarts.use([HeatmapChart, CustomChart, CalendarComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
@@ -19,35 +21,29 @@ echarts.use([HeatmapChart, CustomChart, CalendarComponent, TooltipComponent, Vis
 const { t, locale } = useI18n()
 const isDark = useDark()
 
-const props = defineProps<{
-  session: AnalysisSession
-  dailyActivity: DailyActivity[]
-  messageTypes: Array<{ type: MessageType; count: number }>
-  hourlyActivity: HourlyActivity[]
-  timeRange: { start: number; end: number } | null
-  selectedYear: number | null
-  filteredMessageCount: number
-  timeFilter?: { startTs?: number; endTs?: number }
-}>()
+const props = withDefaults(
+  defineProps<{
+    session: AnalysisSession
+    dailyActivity: DailyActivity[]
+    messageTypes: Array<{ type: MessageType; count: number }>
+    hourlyActivity: HourlyActivity[]
+    timeRange: { start: number; end: number } | null
+    filteredMessageCount: number
+    filteredMemberCount?: number
+    timeFilter?: { startTs?: number; endTs?: number }
+    capturable?: boolean
+  }>(),
+  {
+    capturable: true,
+  }
+)
 
 // ==================== 统计数据 ====================
 
-const weekdayActivity = ref<WeekdayActivity[]>([])
-
-async function loadWeekdayActivity() {
-  if (!props.session.id) return
-  try {
-    weekdayActivity.value = await window.chatApi.getWeekdayActivity(props.session.id, props.timeFilter)
-  } catch (error) {
-    console.error('加载星期活跃度失败:', error)
-  }
-}
-
-watch(
-  () => [props.session.id, props.timeFilter],
-  () => loadWeekdayActivity(),
-  { immediate: true, deep: true }
-)
+const { weekdayActivity } = useWeekdayActivity({
+  sessionId: () => props.session.id,
+  timeFilter: () => props.timeFilter,
+})
 
 const {
   durationDays,
@@ -71,18 +67,21 @@ const {
 const chartRef = ref<HTMLElement | null>(null)
 let chartInstance: echarts.ECharts | null = null
 
-const fullTimeRangeText = computed(() => {
-  if (!props.timeRange) return ''
-  return formatDateRange(props.timeRange.start, props.timeRange.end, 'YYYY/MM/DD')
+const effectiveTimeRange = computed(() => resolveOverviewTimeRange(props.timeRange, props.timeFilter))
+
+const timeRangeText = computed(() => {
+  if (!effectiveTimeRange.value) return ''
+  return formatDateRange(effectiveTimeRange.value.start, effectiveTimeRange.value.end, 'YYYY/MM/DD')
 })
 
-const calendarRange = computed(() => {
+const calendarRange = computed<[string, string]>(() => {
+  const range = getOverviewCalendarRange(effectiveTimeRange.value)
+  if (range) return range
+
   const today = new Date()
-  const yearAgo = new Date(today)
-  yearAgo.setFullYear(yearAgo.getFullYear() - 1)
-  yearAgo.setDate(yearAgo.getDate() + 1)
   const fmt = (d: Date) => d.toISOString().slice(0, 10)
-  return [fmt(yearAgo), fmt(today)]
+  const todayStr = fmt(today)
+  return [todayStr, todayStr]
 })
 
 const chartData = computed(() => {
@@ -219,7 +218,9 @@ const chartOption = computed<EChartsOption>(() => ({
             height: size,
             r: 3, // 圆角
           },
-          style: api.style(),
+          style: {
+            fill: api.visual('color'),
+          },
         }
       },
       itemStyle: {
@@ -246,7 +247,7 @@ function handleResize() {
   chartInstance?.resize()
 }
 
-watch([() => props.dailyActivity, locale], () => updateChart())
+watch([() => props.dailyActivity, locale, calendarRange], () => updateChart())
 
 watch(isDark, () => {
   chartInstance?.dispose()
@@ -265,14 +266,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <ThemeCard variant="elevated" decorative class="flex flex-col">
+  <ReportCard :capturable="capturable">
     <!-- 身份信息 + 基础统计 -->
-    <div class="relative z-10 px-6 pt-8 pb-4 sm:px-8">
-      <h2 class="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
+    <div class="relative z-10 px-5 pt-6 pb-4 sm:px-8 sm:pt-8">
+      <h2 class="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl dark:text-gray-100">
         {{ session.name }}
       </h2>
 
-      <div class="mt-4 flex items-start gap-6 sm:gap-24">
+      <div class="mt-4 flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-24">
         <div class="min-w-0 flex flex-col gap-2 text-sm font-medium text-gray-500 dark:text-gray-400">
           <div class="flex items-center gap-2">
             <div class="flex h-6 w-6 shrink-0 items-center justify-center">
@@ -290,15 +291,15 @@ onUnmounted(() => {
             </span>
           </div>
 
-          <div v-if="fullTimeRangeText" class="flex items-center gap-2">
+          <div v-if="timeRangeText" class="flex items-center gap-2">
             <div class="flex h-6 w-6 shrink-0 items-center justify-center">
               <UIcon name="i-heroicons-calendar" class="h-4 w-4 opacity-70" />
             </div>
-            <span class="font-mono text-xs opacity-90 whitespace-nowrap">{{ fullTimeRangeText }}</span>
+            <span class="font-mono text-xs opacity-90 whitespace-nowrap">{{ timeRangeText }}</span>
           </div>
         </div>
 
-        <div class="flex shrink-0 gap-6">
+        <div class="grid grid-cols-2 gap-x-8 gap-y-4 sm:flex sm:shrink-0 sm:gap-6">
           <div class="flex flex-col gap-1 text-center">
             <span class="text-2xl font-black font-mono tracking-tight text-gray-900 dark:text-white">
               {{ displayMessageCount.toLocaleString() }}
@@ -339,7 +340,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 热力图区域 -->
-    <div class="relative z-10 px-6 pb-2 sm:px-8">
+    <div class="relative z-10 px-5 pb-2 sm:px-8">
       <div class="mb-2 flex items-center justify-between">
         <span class="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
           Activity Heatmap
@@ -368,5 +369,5 @@ onUnmounted(() => {
       :late-night-ratio="lateNightChat.ratio"
       :max-consecutive-days="maxConsecutiveDays"
     />
-  </ThemeCard>
+  </ReportCard>
 </template>

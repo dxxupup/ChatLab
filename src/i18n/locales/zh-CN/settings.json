@@ -4,18 +4,21 @@
     "basic": "基础设置",
     "ai": "AI 设置",
     "aiConfig": "模型服务",
-    "aiRAG": "向量模型",
-    "aiPrompt": "对话配置",
+    "aiDefaultModel": "默认模型",
+    "semanticIndex": "语义索引",
+    "chatPreferences": "对话偏好",
+    "compression": "上下文压缩",
     "aiPreprocess": "预处理",
     "dataManage": "数据管理",
     "storage": "存储管理",
-    "storageManage": "存储管理",
-    "sessionManage": "会话管理",
+    "security": "安全",
+    "sessionManage": "会话索引",
     "about": "关于",
     "api": "自动化",
     "apiSubTabs": {
       "autoSync": "自动同步",
-      "apiService": "API 服务"
+      "apiService": "API 服务",
+      "mcp": "MCP"
     }
   },
   "basic": {
@@ -26,7 +29,6 @@
       "title": "偏好设置"
     },
     "language": {
-      "title": "语言",
       "description": "选择软件显示语言"
     },
     "appearance": {
@@ -37,13 +39,11 @@
       "dark": "深色模式"
     },
     "defaultTab": {
-      "title": "默认标签页",
       "description": "进入聊天对话后默认显示的页面",
       "overview": "总览",
       "aiChat": "AI 对话"
     },
     "autoLaunch": {
-      "title": "启动设置",
       "openAtLogin": "开机自启动",
       "openAtLoginDesc": "系统启动时自动运行 ChatLab",
       "devModeHint": "开发模式下不可用"
@@ -53,11 +53,6 @@
       "positionDesc": "选择快捷工具面板的显示位置",
       "positionSide": "右侧",
       "positionHeader": "顶部"
-    },
-    "screenshot": {
-      "title": "截图设置",
-      "mobileAdapt": "移动端适配",
-      "mobileAdaptDesc": "截图时自动缩放宽度，适合移动端查看"
     },
     "network": {
       "title": "网络设置",
@@ -79,30 +74,34 @@
       "saveFailed": "保存失败"
     }
   },
+  "defaultModel": {
+    "title": "默认模型",
+    "noConfigs": "请先在「模型服务」中添加模型配置",
+    "selectProvider": "选择提供商",
+    "selectModel": "选择模型",
+    "assistantModel": {
+      "label": "默认助手模型",
+      "description": "用于 AI 对话、工具调用、SQL 助手、上下文压缩"
+    },
+    "fastModel": {
+      "label": "快速模型",
+      "description": "用于会话摘要生成，未配置时使用默认助手模型",
+      "followAssistant": "跟随默认助手模型"
+    }
+  },
   "aiConfig": {
-    "title": "服务配置",
-    "providerTitle": "服务提供商",
-    "loading": "加载中...",
-    "inUse": "使用中",
+    "title": "模型服务",
     "defaultModel": "默认模型",
-    "localService": "本地服务",
-    "edit": "编辑",
-    "delete": "删除",
     "empty": {
       "title": "还没有配置 AI 服务",
       "description": "添加一个配置开始使用 AI 功能"
     },
-    "addConfig": "添加新配置",
+    "addConfig": "添加新服务",
     "maxConfigs": "已达最大配置数量（10个）",
     "modal": {
-      "addConfig": "添加新配置",
-      "editConfig": "编辑配置",
-      "officialApi": "官方API",
-      "officialApiDesc": "DeepSeek、Gemini 等",
+      "addConfig": "添加新服务",
+      "editConfig": "编辑服务",
       "localService": "本地服务",
-      "localServiceDesc": "Ollama 等",
-      "openaiCompatible": "OpenAI 兼容",
-      "openaiCompatibleDesc": "自定义端点",
       "configName": "配置名称",
       "optional": "（选填）",
       "configNamePlaceholderPreset": "留空将使用服务商名称",
@@ -120,11 +119,6 @@
       "saveAnyway": "仍然保存",
       "validationError": "验证失败：",
       "model": "模型",
-      "modelName": "模型名称",
-      "modelNamePlaceholder": "如 gpt-4、claude-3",
-      "modelNamePlaceholderLocal": "如 qwen3、deepseek-r1",
-      "modelNameHint": "输入 API 支持的模型名称",
-      "modelNameHintLocal": "输入本地部署的模型名称",
       "apiEndpoint": "API 地址",
       "apiEndpointHint": "兼容 OpenAI 格式的 API 端点",
       "resolvedUrl": "实际请求地址:",
@@ -138,26 +132,22 @@
       "addAllModels": "全部添加",
       "searchModels": "搜索模型...",
       "apiEndpointOverrideHint": "默认地址已填入，可按需改为完整 URL",
-      "disableThinking": "禁用思考模式",
-      "disableThinkingDesc": "针对 Qwen3、DeepSeek-R1 等模型，禁用后使用标准工具调用格式",
-      "isReasoningModel": "推理模型",
-      "isReasoningModelDesc": "启用后将提取思考过程并禁用工具调用（如 DeepSeek-R1、QwQ 等）",
-      "advancedOptions": "高级选项",
       "customService": "自定义服务",
-      "unnamedConfig": "未命名配置",
       "visitWebsite": "访问官网",
       "getApiKey": "获取 API Key",
       "presetService": "预设服务",
       "thirdPartyService": "第三方服务",
-      "customModelInput": "手动输入模型",
-      "selectFromList": "从列表选择",
       "addCustomModel": "添加模型",
       "deleteCustomModel": "删除选中",
       "customModelId": "模型端点名",
       "customModelIdHint": "API 调用时使用的模型标识符",
       "customModelDisplayName": "显示名称",
       "customModelDisplayNamePlaceholder": "自定义显示名",
-      "modelCapabilities": "模型能力标注",
+      "editModel": "编辑模型",
+      "contextWindow": "上下文窗口",
+      "contextWindowPlaceholder": "如 128000",
+      "contextWindowHint": "模型支持的最大上下文 token 数（用于上下文压缩）",
+      "contextWindowMissing": "未设置上下文窗口，将使用默认值，建议点击「编辑模型」手动填写",
       "modelRequired": "至少添加一个模型才能保存",
       "apiFormat": "API 接口类型",
       "apiFormatOpenAI": "OpenAI Completions",
@@ -166,17 +156,8 @@
       "apiFormatOpenAIResponses": "OpenAI Responses"
     },
     "providerKind": {
-      "official": "官方",
       "aggregator": "聚合",
       "custom": "自定义"
-    },
-    "capabilities": {
-      "chat": "对话",
-      "reasoning": "推理",
-      "vision": "视觉",
-      "function_calling": "工具调用",
-      "embedding": "向量",
-      "ranking": "排序"
     }
   },
   "storage": {
@@ -184,23 +165,47 @@
     "description": "管理 ChatLab 在本地存储的数据文件",
     "dataLocation": {
       "title": "数据目录位置",
-      "description": "自定义本地数据与缓存的存放位置",
+      "description": "自定义聊天数据库与向量库的存放位置",
+      "managedDescription": "此设置仅管理聊天数据库和向量库目录；AI 对话、缓存和日志仍保存在固定系统目录。",
       "choose": "选择位置",
+      "applyPath": "应用",
       "reset": "恢复默认",
       "open": "打开",
-      "restartTip": "切换目录后请重启应用，旧目录下缓存会跟随迁移",
+      "serverPathHint": "请输入运行 CLI 服务的机器可访问的绝对路径。",
+      "migrateHint": "检测到聊天数据库数据仍在旧位置，建议迁移至统一目录：",
+      "ignoreMigrateHint": "忽略",
+      "migrateAction": "一键迁移",
+      "restartTip": "切换目录后请重启应用，聊天数据库数据会按选择迁移",
+      "cliRestartTip": "切换目录后请重启 CLI 服务，聊天数据库数据会在服务启动前迁移",
       "confirmTitle": "确认切换数据目录",
-      "confirmMessage": "您即将切换数据存储位置，现有数据将被迁移到新目录。",
+      "confirmMessage": "您即将切换聊天数据库目录。选择迁移时，现有聊天数据库数据将复制到新目录。",
       "newPath": "新目录路径",
       "defaultPath": "默认位置",
-      "confirmWarning": "重启应用后，旧数据目录将被自动删除。请确保新目录路径正确。",
+      "confirmWarning": "重启应用后，聊天数据库数据会迁移到新位置，旧目录将保留为备份。",
+      "cliConfirmWarning": "重启 CLI 服务后，聊天数据库数据会迁移到新位置，旧目录将保留为备份。请确保服务进程有读写权限。",
+      "pathRequired": "请输入数据目录路径",
       "installDirForbidden": "不能将数据目录放在应用安装目录下，应用更新时该目录会被清空",
       "cancel": "取消",
       "confirm": "确认切换",
-      "migrationSuccessTitle": "数据迁移完成",
+      "migrationQueuedTitle": "数据迁移已登记",
       "migrationSuccessMessage": "应用需要重启以使更改生效。",
-      "relaunchNow": "立即重启"
+      "cliMigrationSuccessMessage": "请停止当前 CLI 服务并重新启动，迁移会在服务启动前执行。重启完成后再重新打开页面查看新目录。",
+      "relaunchNow": "立即重启",
+      "acknowledge": "知道了",
+      "cleanupNoticeTitle": "已切换到新的数据目录",
+      "cleanupNoticeDescription": "为避免数据丢失，原目录仍作为备份保留。请确认聊天记录完整后，再前往存储管理清理旧数据。",
+      "cleanupOldPath": "原数据目录",
+      "cleanupLater": "稍后处理",
+      "cleanupGoToStorage": "前往存储管理",
+      "cleanupTitle": "待清理的旧数据",
+      "cleanupDescription": "迁移前的数据目录仍作为备份保留。确认新目录中的聊天记录完整后，可手动删除。",
+      "cleanupDeleteAction": "删除旧数据",
+      "cleanupDeleteConfirmTitle": "永久删除旧数据？",
+      "cleanupDeleteConfirmDescription": "此操作无法恢复。请先确认新目录中的聊天记录完整，再删除以下原数据目录。",
+      "cleanupDeleteConfirmAction": "永久删除",
+      "cleanupDeleteFailed": "旧数据删除失败"
     },
+    "openRootDir": "打开根目录",
     "totalUsage": "总占用：",
     "loading": "加载中...",
     "files": "文件",
@@ -216,10 +221,6 @@
         "name": "AI 对话数据库",
         "description": "AI 对话历史和配置文件"
       },
-      "downloads": {
-        "name": "下载目录",
-        "description": "包含截屏文件、分析结果等"
-      },
       "statsCache": {
         "name": "缓存数据",
         "description": "聊天记录的统计缓存，清理后会自动重建"
@@ -228,50 +229,135 @@
         "name": "日志文件",
         "description": "软件的运行日志，包含导入、AI、错误等日志"
       }
-    },
+    }
+  },
+  "ai": {
     "session": {
       "title": "会话索引设置",
       "description": "会话索引将聊天记录按时间间隔自动分割为对话段落，便于AI分析和浏览",
       "defaultThreshold": "默认分割间隔",
       "thresholdUnit": "分钟",
       "thresholdHelp": "超过该时间间隔的消息将被分到新的会话段落",
-      "notGenerated": "尚未生成会话索引",
-      "generateHint": "生成索引后可让 AI 更精准地理解对话上下文",
-      "generate": "生成索引",
-      "regenerate": "重新生成",
       "generating": "正在生成",
-      "sessionCount": "{count} 个会话",
-      "generated": "已生成会话索引",
-      "generateSuccess": "会话索引生成成功，共 {count} 个会话",
-      "generateError": "生成失败",
       "batchTitle": "批量生成索引",
       "totalSessions": "共 {count} 个聊天",
       "generatedCount": "已生成 {count} 个",
       "notGeneratedCount": "未生成 {count} 个",
       "loadingStatus": "加载中...",
       "batchGenerate": "生成未索引",
-      "batchRegenerate": "全部重新生成"
+      "batchRegenerate": "全部重新生成",
+      "batchRegenerateConfirmTitle": "确认重新生成",
+      "batchRegenerateConfirmMessage": "此操作将清空所有已生成的 AI 摘要，并重新生成全部会话索引。",
+      "batchRegenerateConfirmWarning": "已有的摘要内容将被覆盖，此操作不可撤销。",
+      "summaryStrategy": "摘要详细程度",
+      "summaryStrategyHelp": "影响 AI 生成摘要时的详细程度",
+      "summaryBrief": "简要",
+      "summaryStandard": "标准"
+    },
+    "semanticIndex": {
+      "title": "语义索引",
+      "description": "用所选向量模型为聊天记录建立索引，启用后 AI 回答时可按语义检索相关历史片段作为依据。",
+      "vectorModel": "向量模型",
+      "selectModel": "选择向量模型",
+      "switchModel": "切换模型",
+      "noModelSelected": "未选择向量模型",
+      "modelModalTitle": "配置向量模型",
+      "modeLocal": "本地模型",
+      "modeApi": "API",
+      "recommended": "推荐",
+      "approxSize": "约 {mb} MB",
+      "modelDownloadSource": "模型下载源",
+      "downloadSourceOfficial": "Hugging Face 官方",
+      "downloadSourceMirror": "HF-Mirror 国内镜像",
+      "mirrorSourceHint": "HF-Mirror 是第三方公益镜像，适合中国大陆网络环境；模型文件将从 hf-mirror.com 下载。",
+      "localDownloadHint": "保存后自动下载模型，首次下载可能需要一些时间。",
+      "apiTemplate": "服务模板",
+      "modelName": "模型名",
+      "apiKeySaved": "已保存，留空则不修改",
+      "apiKeyHint": "API Key 单独安全存储，配置文件只保存引用。",
+      "apiCostWarning": "API 模式可能产生服务商费用，请确认模型价格。",
+      "changeRebuildHint": "更换模型或 API 后，已启用对话需要重建索引。",
+      "modelDownloading": "正在下载模型，首次使用需要几分钟，请稍候…",
+      "modelError": "模型下载失败，建立索引时将重试。",
+      "searchMaxResults": {
+        "label": "单次检索片段数",
+        "hint": "AI 调用语义检索时默认返回的相关片段数（5-15）。AI 可按问题需要临时调高。"
+      },
+      "overview": "索引概览",
+      "enabledCount": "已启用 {count} 个对话",
+      "coverage": "覆盖率 {percent}%",
+      "buildPending": "建立待处理索引",
+      "cleanup": "清理未使用索引",
+      "cleanupConfirm": "将删除已停用对话和旧模型遗留的索引数据。此操作不会删除聊天记录。",
+      "configFirst": "请先配置向量模型",
+      "selectConversations": "选择对话",
+      "enabledSessions": "已启用对话",
+      "state": {
+        "completed": "已完成",
+        "building": "建立中",
+        "pending": "待建立",
+        "needsRebuild": "需要重建",
+        "failed": "失败",
+        "paused": "已暂停"
+      },
+      "action": {
+        "build": "建立索引",
+        "pause": "暂停",
+        "cancel": "取消",
+        "rebuild": "重建索引",
+        "remove": "移除"
+      },
+      "session": {
+        "statusLabel": "状态",
+        "notEnabled": "未启用",
+        "coverageLabel": "覆盖率",
+        "progressLabel": "建立进度",
+        "enableHint": "启用后，AI 可以在回答此对话相关问题时检索历史聊天片段。",
+        "configFirst": "启用前需要先在 设置 > AI > 语义索引 配置向量模型。",
+        "enable": "启用索引",
+        "buildVsEnable": "启用索引：让此对话进入语义检索范围；建立索引：开始读取全部消息生成向量，可能消耗本地算力或 API 额度。",
+        "retry": "重试",
+        "continue": "继续"
+      },
+      "picker": {
+        "title": "选择对话",
+        "all": "全部",
+        "group": "群聊",
+        "private": "私聊",
+        "searchPlaceholder": "按名称搜索",
+        "messages": "{count} 条消息",
+        "enabled": "已启用",
+        "selectedSummary": "已选择 {count} 个对话，约 {messages} 条消息",
+        "confirmRemoveTitle": "确认移除",
+        "confirmRemoveMessage": "这些对话的语义索引将被立即删除，不可恢复。"
+      }
     }
   },
   "aiPrompt": {
     "chatSettings": {
-      "title": "对话设置"
+      "title": "工具设置"
     },
     "exportSettings": {
       "title": "导出设置"
     },
-    "skillSettings": {
-      "title": "技能设置",
+    "chatPreferences": {
+      "title": "对话偏好",
       "enableAutoSkill": "AI 自主选择技能",
-      "enableAutoSkillDesc": "启用后，AI 会根据用户的问题自动匹配并激活合适的分析技能；关闭后仅在手动选择技能时生效"
+      "enableAutoSkillDesc": "启用后，AI 会根据用户的问题自动匹配并激活合适的分析技能；关闭后仅在手动选择技能时生效",
+      "chartAutoMode": {
+        "title": "图表自动生成",
+        "description": "控制 AI 在没有手动选择绘图助手时使用图表的积极程度",
+        "explicit": "明确请求时",
+        "explicitHint": "只有你明确要求图表时，AI 才会生成图表。",
+        "suggest": "智能生成",
+        "suggestHint": "策略保守，仅在能明显帮助理解分析结果时生成图表。",
+        "aggressive": "积极生成",
+        "aggressiveHint": "AI 会更主动地在数据分析场景中生成图表。"
+      }
     },
     "maxMessages": {
       "title": "发送条数限制",
       "description": "每次提交给 AI 的最大消息数，数值越大 Token 消耗越多，分析也更准确（新手建议2000）"
-    },
-    "maxHistory": {
-      "title": "AI上下文限制",
-      "description": "每次对话保留最近的对话轮数（1轮 = 用户提问 + AI回复），防止上下文过长消耗 Token"
     },
     "searchContext": {
       "title": "搜索上下文窗口",
@@ -288,55 +374,16 @@
       "title": "SQL Lab 导出格式",
       "description": "导出 SQL 查询结果时使用的文件格式"
     },
-    "presets": {
-      "title": "系统提示词",
-      "add": "添加预设",
-      "import": "导入预设",
-      "description": "提示词同时用于群聊和私聊分析，系统会自动根据分析类型调整相关内容"
-    },
-    "preset": {
-      "builtIn": "内置",
-      "groupOnly": "仅群聊",
-      "privateOnly": "仅私聊",
-      "view": "查看",
-      "edit": "编辑",
-      "copy": "复制",
-      "delete": "删除"
-    },
-    "modal": {
-      "editBuiltin": "编辑系统提示词",
-      "editCustom": "编辑自定义提示词",
-      "addCustom": "添加自定义提示词",
-      "presetName": "预设名称",
-      "presetNamePlaceholder": "为预设起个名字",
-      "applicableTo": "适用场景",
-      "applicableToHint": "（勾选后可在对应分析类型中使用）",
-      "groupChat": "群聊分析",
-      "privateChat": "私聊分析",
-      "systemPrompt": "系统提示词",
-      "systemPromptPlaceholder": "定义 AI 助手的角色、任务和回答要求...",
-      "preview": "完整提示词预览",
-      "previewHint": "（预览为群聊模式，实际会根据分析类型自动调整）",
-      "resetToDefault": "重置为默认",
-      "saveChanges": "保存修改",
-      "addPreset": "添加预设"
-    },
-    "importPreset": {
-      "title": "导入预设",
-      "description": "从远程获取推荐的系统提示词预设",
-      "loading": "正在加载远程预设...",
-      "loadError": "加载远程预设失败",
-      "noPresets": "暂无可用的远程预设",
-      "commonPresets": "通用预设",
-      "groupPresets": "群聊专用预设",
-      "privatePresets": "私聊专用预设",
-      "add": "添加",
-      "added": "已添加",
-      "preview": "预览",
-      "systemPrompt": "系统提示词",
-      "noDescription": "暂无描述",
-      "fetchingContent": "正在加载内容...",
-      "fetchError": "加载内容失败"
+    "compression": {
+      "title": "上下文压缩",
+      "enable": "自动压缩上下文",
+      "enableDesc": "对话过长时自动压缩历史为摘要，保留关键信息的同时降低 Token 消耗",
+      "threshold": "压缩阈值",
+      "thresholdDesc": "上下文 Token 达到模型窗口的百分比时触发压缩",
+      "buffer": "缓冲区大小",
+      "bufferDesc": "保留最近消息原文的比例，不参与压缩",
+      "maxToolResultPercent": "工具结果上限",
+      "maxToolResultPercentDesc": "单次工具返回给 AI 的最大数据量占比（基于模型上下文窗口计算），超出部分会被智能截断"
     }
   },
   "about": {
@@ -345,6 +392,10 @@
     "version": "版本",
     "checkUpdate": "检查更新",
     "checking": "检查中...",
+    "upToDate": "已是最新版本",
+    "newVersionAvailable": "发现新版本 {version}",
+    "webUpdateHint": "请在终端运行 clb update 后重启服务。",
+    "updateCheckFailed": "检查更新失败：{error}",
     "unknown": "未知",
     "privacy": {
       "title": "隐私设置",
@@ -354,43 +405,8 @@
     "developer": {
       "title": "开发者选项",
       "debugMode": "DEBUG 模式",
-      "debugModeDesc": "开启后，AI 日志中将记录完整的原始消息内容，不截断。日志文件可能会显著增大"
+      "debugModeDesc": "开启后，将显示调试面板和快捷调试工具，可用于查看数据库、运行测试工具，并记录更详细的调试日志。"
     }
-  },
-  "embedding": {
-    "title": "向量模型",
-    "description": "通过 Embedding 向量相似度理解问题含义，启用后 AI 可进行语义搜索",
-    "configList": "Embedding 配置",
-    "addConfig": "添加配置",
-    "editConfig": "编辑配置",
-    "noConfigs": "暂无配置，点击上方按钮添加",
-    "active": "使用中",
-    "setActive": "设为使用",
-    "deleteConfirm": "确定删除配置「{name}」吗？",
-    "configName": "配置名称",
-    "configNamePlaceholder": "如：Ollama Embedding",
-    "apiSource": "API 来源",
-    "apiSourceHint": "「复用对话模型」将使用当前激活的对话模型的端点和密钥",
-    "reuseLLM": "复用对话模型",
-    "customAPI": "自定义 API",
-    "model": "模型名称",
-    "modelPlaceholder": "如 nomic-embed-text",
-    "modelHint": "Ollama 常用：nomic-embed-text、mxbai-embed-large",
-    "baseUrl": "API 端点",
-    "baseUrlPlaceholder": "如 http://localhost:11434/v1",
-    "apiKey": "API Key",
-    "apiKeyPlaceholder": "输入 API Key",
-    "optional": "（可选）",
-    "validate": "测试连接",
-    "validateSuccess": "连接成功！",
-    "validateFailed": "连接失败",
-    "saveFailed": "保存失败",
-    "vectorStore": "向量缓存",
-    "vectorStoreDesc": "缓存已计算的向量，避免重复计算提高速度",
-    "cached": "已缓存",
-    "size": "占用",
-    "clear": "清空",
-    "clearVectorStoreConfirm": "确定清空所有向量缓存吗？这将导致下次搜索时重新计算。"
   },
   "aiPreprocess": {
     "title": "聊天记录预处理",
@@ -404,9 +420,8 @@
     "denoiseDesc": "过滤纯语气词、纯表情、系统占位符（如 [图片]）等无意义消息",
     "desensitize": "数据脱敏",
     "desensitizeDesc": "根据规则将敏感信息（手机号、邮箱、证件号等）替换为占位符",
-    "desensitizeRules": "脱敏规则",
-    "desensitizeRulesDesc": "勾选需要启用的脱敏规则，按列表顺序优先匹配",
     "desensitizeBuiltin": "预置规则",
+    "desensitizeResetBuiltin": "恢复默认",
     "desensitizeCustom": "自定义规则",
     "desensitizeAddCustom": "添加自定义规则",
     "desensitizeRuleName": "规则名称",
@@ -425,6 +440,24 @@
     "blacklistAdd": "添加"
   },
   "desensitize": {
+    "groups": {
+      "credentials": "密码与 Token",
+      "credentials_desc": "API Key、Bearer Token 等凭据",
+      "global_contact": "通用联系方式",
+      "global_contact_desc": "邮箱等跨地区联系方式",
+      "global_financial": "通用金融信息",
+      "global_financial_desc": "信用卡等金融编号",
+      "global_network": "通用网络信息",
+      "global_network_desc": "URL、IP 地址等网络标识",
+      "region_cn": "中国大陆",
+      "region_cn_desc": "中国大陆电话、证件和银行卡等规则",
+      "region_us": "美国",
+      "region_us_desc": "美国电话、证件等规则",
+      "region_jp": "日本",
+      "region_jp_desc": "日本电话、个人编号等规则",
+      "region_kr": "韩国",
+      "region_kr_desc": "韩国电话、身份证号等规则"
+    },
     "rules": {
       "cn_phone": "中国手机号",
       "cn_phone_desc": "1xx xxxx xxxx 格式的 11 位号码",
@@ -463,7 +496,6 @@
     }
   },
   "api": {
-    "betaWarning": "当前 API 版本仅为测试版（Beta），接口可能会发生调整",
     "service": {
       "title": "API 服务",
       "enable": "启用 API 服务",
@@ -501,27 +533,22 @@
       "every": "每",
       "minutes": "分钟",
       "lastSync": "上次同步",
+      "syncing": "同步中",
+      "messages": "条消息",
       "addBtn": "添加数据源",
       "form": {
         "modalTitle": "添加数据源",
         "name": "名称",
         "namePlaceholder": "例如：我的聊天服务器",
-        "url": "数据源 URL",
-        "token": "访问令牌（可选）",
+        "token": "访问令牌",
         "tokenPlaceholder": "远程 API 的 Bearer Token",
         "interval": "拉取间隔（分钟）",
         "pullLimit": "每次拉取消息数",
-        "pullLimitPlaceholder": "默认 1000",
-        "targetSession": "目标会话 ID（可选）",
-        "targetSessionPlaceholder": "留空则每次新建会话",
-        "add": "添加"
+        "pullLimitPlaceholder": "默认 1000"
       },
       "discovery": {
-        "directMode": "直接 URL",
-        "remoteMode": "远程服务器",
         "baseUrl": "服务器地址",
         "baseUrlPlaceholder": "示例：http://127.0.0.1:2333/api/v1",
-        "browse": "浏览远程会话",
         "found": "发现 {count} 个会话",
         "search": "搜索",
         "searchPlaceholder": "按会话名称搜索",
@@ -531,11 +558,11 @@
         "typeAll": "全部",
         "typePrivate": "私聊",
         "typeGroup": "群聊",
-        "typeOther": "其他",
         "loadMore": "加载更多",
         "subscribe": "订阅 {count} 个会话",
         "messages": "条消息",
-        "error": "连接远程服务器失败"
+        "error": "连接远程服务器失败",
+        "connectionCheckFailed": "无法连接到远程服务器，请检查地址和令牌是否正确"
       },
       "edit": {
         "title": "修改配置",
@@ -543,20 +570,90 @@
         "cancel": "取消",
         "editSource": "修改配置",
         "manageSessions": "管理订阅",
-        "manageSessionsDesc": "重新选择要同步的远程会话",
-        "syncAll": "一键同步",
         "subscribed": "已订阅"
       },
       "deleteConfirm": {
         "title": "删除数据源",
         "message": "确认删除数据源「{name}」？该数据源下的所有导入配置将被移除。已导入的本地对话不会被删除。"
+      },
+      "deleteSessionConfirm": {
+        "title": "删除订阅",
+        "message": "确认删除订阅「{name}」？",
+        "keepData": "仅删除订阅",
+        "deleteData": "同时删除导入的聊天"
       }
     },
     "usage": {
       "title": "使用说明",
-      "desc": "启用服务后，外部工具可通过 API 查询和导入数据。所有请求需携带 Bearer Token 认证。",
+      "desc": "启用服务后，外部工具可通过 API 查询数据，或向 ChatLab 推送聊天记录。所有请求需携带 Bearer Token 认证。",
       "authHint": "请求头示例：",
       "docLink": "查看完整 API 文档"
+    }
+  },
+  "mcp": {
+    "overview": {
+      "title": "MCP 概述",
+      "description": "MCP 让 AI 助手直接查询你的聊天记录。支持会话发现、关键词搜索、成员统计、时间分布等操作。",
+      "toolCount": "{count} 个工具",
+      "resourceCount": "{count} 个资源",
+      "installHint": "安装 chatlab-cli 后，在 AI 客户端中添加以下配置即可使用："
+    },
+    "clients": {
+      "other": "通用"
+    },
+    "config": {
+      "title": "客户端配置",
+      "clientLabel": "MCP 客户端",
+      "copy": "复制",
+      "copied": "已复制",
+      "claudeHint": "将此配置添加到 ClaudeCode 的 MCP 配置中。",
+      "codexHint": "将此 TOML 配置添加到 ~/.codex/config.toml 文件中。",
+      "openclawHint": "将此配置添加到项目的 openclaw.json 文件中。",
+      "otherHint": "将此 JSON 配置添加到你的 MCP 客户端配置文件中。"
+    },
+    "tips": {
+      "title": "使用提示",
+      "dataDir": "MCP 服务器读取 ~/.chatlab/ 目录下的聊天数据，与桌面应用共享同一份数据。",
+      "readOnly": "所有操作均为只读，不会修改你的聊天记录。",
+      "nodeRequired": "npx 和 CLI 方式需要 Node.js 20 或更高版本。",
+      "docs": "详细文档请访问 docs.chatlab.fun。"
+    }
+  },
+  "security": {
+    "lock": {
+      "title": "应用锁",
+      "desc": "使用 4 位数字密码保护 ChatLab",
+      "statusOn": "已开启",
+      "statusOff": "未开启",
+      "disableBtn": "关闭应用锁",
+      "disableConfirm": "确定关闭应用锁？关闭后将删除当前密码。",
+      "manualLock": "立即锁定"
+    },
+    "password": {
+      "titleSetup": "设置 4 位密码并开启应用锁",
+      "titleChange": "修改密码",
+      "labelOld": "旧密码",
+      "labelNew": "输入新密码",
+      "labelConfirm": "确认新密码",
+      "btnEnable": "开启",
+      "errorInvalidPin": "密码必须是 4 位数字",
+      "errorMismatch": "两次输入的密码不一致",
+      "errorSameAsOld": "新密码不能与旧密码相同",
+      "errorFailed": "操作失败，请重试"
+    },
+    "autoLock": {
+      "title": "自动锁定",
+      "idleLabel": "闲置超时自动锁定",
+      "startupLabel": "启动时要求解锁"
+    },
+    "lockScreen": {
+      "titleLocked": "ChatLab 已锁定",
+      "placeholderPassword": "输入 4 位数字密码",
+      "btnUnlock": "解锁",
+      "verifying": "验证中...",
+      "errorService": "解锁失败，请重试",
+      "errorWrongPassword": "密码错误",
+      "errorTooManyAttempts": "尝试次数过多，请在 {seconds} 秒后重试"
     }
   }
 }

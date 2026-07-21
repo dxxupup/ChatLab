@@ -1,0 +1,85 @@
+{
+  "title": "交流関係",
+  "subtitle": "パノラマ関係グラフ",
+  "nav": "関係サブページ",
+  "search": "連絡先を検索",
+  "empty": "関係グラフのデータがありません",
+  "privacy": "プライバシーモード",
+  "viewMode": {
+    "3d": "3D",
+    "2d": "2D"
+  },
+  "graphScope": {
+    "panorama": "全景",
+    "close": "高関連",
+    "friends": "友だちのみ"
+  },
+  "timeRange": {
+    "1y": "過去1年",
+    "2y": "過去2年",
+    "3y": "過去3年",
+    "5y": "過去5年",
+    "all": "すべて"
+  },
+  "actions": {
+    "recompute": "再計算",
+    "clearSearch": "検索をクリア",
+    "closeDetail": "詳細を閉じる",
+    "backToPanorama": "全景に戻る",
+    "fitView": "表示に合わせる",
+    "focusConnections": "この人のつながりだけ表示"
+  },
+  "stats": {
+    "nodes": "ノード",
+    "edges": "リンク",
+    "communities": "関連グループ",
+    "members": "人数"
+  },
+  "pool": {
+    "friend": "友だち",
+    "manualFriend": "友だち・手動",
+    "nonFriend": "グループメンバー"
+  },
+  "owner": {
+    "me": "自分",
+    "type": "自分",
+    "avatarText": "自"
+  },
+  "task": {
+    "running": "交流関係を計算中：{current} / {total} セッション",
+    "updating": "関係データが更新された可能性があります。再計算中です。",
+    "failed": "交流関係の計算に失敗しました",
+    "retry": "再試行"
+  },
+  "searchResults": {
+    "title": "検索結果",
+    "offCore": "近傍を読み込む"
+  },
+  "connections": {
+    "title": "関連する連絡先",
+    "empty": "現在のグラフに直接のつながりがありません",
+    "connectionScore": "関連度"
+  },
+  "detail": {
+    "rank": "順位",
+    "score": "スコア",
+    "type": "種類",
+    "community": "コミュニティ",
+    "lastInteraction": "最終交流",
+    "privateMessages": "個別メッセージ",
+    "groupMessages": "グループメッセージ",
+    "commonGroups": "共通グループ",
+    "emptyValue": "なし"
+  },
+  "toast": {
+    "recomputeStarted": "交流関係のバックグラウンド計算を開始しました",
+    "recomputeFailed": "再計算に失敗しました",
+    "loadFailed": "交流関係の読み込みに失敗しました",
+    "neighborhoodFailed": "近傍の読み込みに失敗しました",
+    "threeUnavailable": "3Dレンダリングを利用できないため、2Dに切り替えました。"
+  },
+  "canvas": {
+    "label": "交流関係ギャラクシーグラフ",
+    "label3d": "3D交流関係ギャラクシーグラフ"
+  }
+}

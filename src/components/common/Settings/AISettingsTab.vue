@@ -2,12 +2,14 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AIModelConfigTab from './AI/AIModelConfigTab.vue'
+import AIDefaultModelTab from './AI/AIDefaultModelTab.vue'
 import AIPromptConfigTab from './AI/AIPromptConfigTab.vue'
 import AIPreprocessTab from './AI/AIPreprocessTab.vue'
-// TODO: 向量模型暂时隐藏，待功能完善后恢复
-// import RAGConfigTab from './AI/RAGConfigTab.vue'
-import SubTabs from '@/components/UI/SubTabs.vue'
-import { useSubTabsScroll } from '@/composables/useSubTabsScroll'
+import AIExportSettingsTab from './AI/AIExportSettingsTab.vue'
+import SessionIndexSection from './AI/SessionIndexSection.vue'
+import SemanticIndexSection from './AI/SemanticIndexSection.vue'
+import { CompactTabs } from '@/components/navigation'
+import { useAnchorNavigation } from '@/composables/useAnchorNavigation'
 
 const { t } = useI18n()
 
@@ -19,14 +21,18 @@ const emit = defineEmits<{
 // 导航配置
 const navItems = computed(() => [
   { id: 'model', label: t('settings.tabs.aiConfig') },
-  // TODO: 向量模型暂时隐藏，待功能完善后恢复
-  // { id: 'rag', label: t('settings.tabs.aiRAG') },
-  { id: 'chat', label: t('settings.tabs.aiPrompt') },
+  { id: 'defaultModel', label: t('settings.tabs.aiDefaultModel') },
+  { id: 'semanticIndex', label: t('settings.tabs.semanticIndex') },
+  { id: 'skill', label: t('settings.tabs.chatPreferences') },
+  { id: 'chat', label: t('settings.aiPrompt.chatSettings.title') },
+  { id: 'compression', label: t('settings.tabs.compression') },
   { id: 'preprocess', label: t('settings.tabs.aiPreprocess') },
+  { id: 'sessionIndex', label: t('settings.tabs.sessionManage') },
+  { id: 'export', label: t('settings.aiPrompt.exportSettings.title') },
 ])
 
-// 使用二级导航滚动联动 composable
-const { activeNav, scrollContainerRef, setSectionRef, handleNavChange, scrollToId } = useSubTabsScroll(navItems)
+// 使用锚点导航滚动联动 composable
+const { activeNav, scrollContainerRef, setSectionRef, handleNavChange, scrollToId } = useAnchorNavigation(navItems)
 void scrollContainerRef // 在模板中通过 ref="scrollContainerRef" 使用
 
 // AI 配置变更回调
@@ -54,8 +60,8 @@ void aiModelConfigRef.value
 <template>
   <div class="flex h-full gap-6">
     <!-- 左侧锚点导航 -->
-    <div class="w-28 shrink-0">
-      <SubTabs v-model="activeNav" :items="navItems" orientation="vertical" @change="handleNavChange" />
+    <div class="w-36 shrink-0">
+      <CompactTabs v-model="activeNav" :items="navItems" orientation="vertical" @change="handleNavChange" />
     </div>
 
     <!-- 右侧内容区域 -->
@@ -66,28 +72,32 @@ void aiModelConfigRef.value
           <AIModelConfigTab ref="aiModelConfigRef" @config-changed="handleAIConfigChanged" />
         </div>
 
-        <!-- TODO: 向量模型暂时隐藏，待功能完善后恢复 -->
-        <!--
-        <div class="border-t border-gray-200 dark:border-gray-700" />
-        <div :ref="(el) => setSectionRef('rag', el as HTMLElement)">
-          <RAGConfigTab @config-changed="handleAIConfigChanged" />
-        </div>
-        -->
-
-        <!-- 分隔线 -->
-        <div class="border-t border-gray-200 dark:border-gray-700" />
-
-        <!-- 对话配置 -->
-        <div :ref="(el) => setSectionRef('chat', el as HTMLElement)">
-          <AIPromptConfigTab @config-changed="handleAIConfigChanged" />
+        <!-- 默认模型 -->
+        <div :ref="(el) => setSectionRef('defaultModel', el as HTMLElement)">
+          <AIDefaultModelTab @config-changed="handleAIConfigChanged" />
         </div>
 
-        <!-- 分隔线 -->
-        <div class="border-t border-gray-200 dark:border-gray-700" />
+        <!-- 语义索引 -->
+        <div :ref="(el) => setSectionRef('semanticIndex', el as HTMLElement)">
+          <SemanticIndexSection />
+        </div>
+
+        <!-- 工具设置 -->
+        <AIPromptConfigTab :set-section-ref="setSectionRef" @config-changed="handleAIConfigChanged" />
 
         <!-- 预处理配置 -->
         <div :ref="(el) => setSectionRef('preprocess', el as HTMLElement)">
           <AIPreprocessTab />
+        </div>
+
+        <!-- 会话索引 -->
+        <div :ref="(el) => setSectionRef('sessionIndex', el as HTMLElement)">
+          <SessionIndexSection />
+        </div>
+
+        <!-- 导出设置 -->
+        <div :ref="(el) => setSectionRef('export', el as HTMLElement)">
+          <AIExportSettingsTab @config-changed="handleAIConfigChanged" />
         </div>
       </div>
     </div>

@@ -14,6 +14,52 @@ export interface ExportLabels {
   assistant: string
 }
 
+export interface ConversationExportSourceMessage {
+  role: string
+  content: string
+  timestamp: number
+  contentBlocks?: Array<{ type: string; text?: string }>
+}
+
+function getMessageContent(message: ConversationExportSourceMessage): string {
+  if (message.content.trim()) {
+    return message.content
+  }
+
+  const textFromBlocks =
+    message.contentBlocks
+      ?.filter((block): block is { type: 'text'; text: string } => block.type === 'text' && Boolean(block.text))
+      .map((block) => block.text)
+      .join('') ?? ''
+
+  return textFromBlocks
+}
+
+export function getExportableConversationMessages(messages: ConversationExportSourceMessage[]): ExportMessage[] {
+  return messages.flatMap((message) => {
+    if (message.role !== 'user' && message.role !== 'assistant') {
+      return []
+    }
+
+    const content = getMessageContent(message)
+    if (!content.trim()) {
+      return []
+    }
+
+    return [
+      {
+        role: message.role,
+        content,
+        timestamp: message.timestamp,
+      },
+    ]
+  })
+}
+
+export function hasExportableConversationMessages(messages: ConversationExportSourceMessage[]): boolean {
+  return getExportableConversationMessages(messages).length > 0
+}
+
 /**
  * 格式化对话为 Markdown 格式
  */
@@ -121,7 +167,8 @@ export async function exportConversation(
 
   // 转换为 data URL 并保存
   const dataUrl = `data:text/plain;charset=utf-8,${encodeURIComponent(content)}`
-  const result = await window.cacheApi.saveToDownloads(filename, dataUrl)
+  const { useCacheService } = await import('@/services/cache/service')
+  const result = await useCacheService().saveToDownloads(filename, dataUrl)
 
   return result
 }

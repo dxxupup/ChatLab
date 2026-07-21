@@ -1,0 +1,101 @@
+{
+  "title": "連絡先",
+  "subtitle": "{count} 件の個人チャットをインポート済み",
+  "disabled": "現在の期間内の有効な個人チャット数は {count} 件です。グループチャットが 1 件以上、または有効な個人チャットが 5 件以上になると連絡先が有効になります。",
+  "empty": "一致する連絡先はありません",
+  "emptyValue": "なし",
+  "search": "連絡先を検索",
+  "score": "スコア {value}",
+  "timeRange": {
+    "1y": "1年",
+    "2y": "2年",
+    "3y": "3年",
+    "5y": "5年",
+    "all": "すべて"
+  },
+  "stats": {
+    "total": "連絡先",
+    "friends": "友人",
+    "nonFriends": "グループ仲間"
+  },
+  "filters": {
+    "allPools": "すべて",
+    "friends": "友人",
+    "nonFriends": "グループ仲間"
+  },
+  "tabs": {
+    "friends": "友人",
+    "groupContacts": "グループ仲間"
+  },
+  "pool": {
+    "friend": "友人",
+    "manualFriend": "友人 · 手動",
+    "nonFriend": "グループ仲間"
+  },
+  "group": {
+    "pinned": "ピン留めした連絡先",
+    "friends": "友人",
+    "group_contacts": "グループ仲間"
+  },
+  "table": {
+    "contact": "連絡先",
+    "status": "種別"
+  },
+  "actions": {
+    "recompute": "再計算",
+    "markFriend": "友人としてマーク",
+    "unmarkFriend": "マークを解除",
+    "clearSearch": "検索をクリア",
+    "clearSelection": "選択を解除",
+    "openSourceSession": "会話へ移動",
+    "viewSourceRecords": "チャット履歴を見る",
+    "viewDetail": "{name} の詳細を表示"
+  },
+  "detail": {
+    "title": "連絡先の詳細",
+    "score": "総合スコア",
+    "scoreHelp": "総合スコアは連絡先の並び順に使われます。スコアが高いほど、やり取りのシグナルが強いことを示します。",
+    "lastInteraction": "最終インタラクション",
+    "sources": "元チャット",
+    "sourceType": {
+      "private": "個人",
+      "group": "グループ"
+    },
+    "aliases": "別名",
+    "signals": "やり取りのシグナル",
+    "emptyTitle": "連絡先を選択",
+    "emptyDescription": "左側の連絡先を選ぶと、やり取りの指標と元チャットが表示されます。"
+  },
+  "metrics": {
+    "privateMessages": "個人チャット {count} 件",
+    "privateMessagesLabel": "個人メッセージ",
+    "activeMonths": "アクティブ月",
+    "commonGroups": "共通グループ",
+    "lastInteractionShort": "最近",
+    "groups": "共通グループ {count} 件",
+    "coOccurrence": "同時出現",
+    "replies": "返信",
+    "groupSignals": "同時出現 {count} 回"
+  },
+  "stale": {
+    "title": "連絡先データが古い可能性があります",
+    "message": "チャットデータが変更されました。バックグラウンドで連絡先を更新しています。",
+    "inline": "連絡先データが古い可能性があります。",
+    "later": "後で"
+  },
+  "task": {
+    "running": "連絡先を計算中: {current} / {total} セッション",
+    "updating": "連絡先データが更新された可能性があります。再計算しています。",
+    "failed": "連絡先の計算に失敗しました",
+    "retry": "再試行"
+  },
+  "toast": {
+    "recomputed": "連絡先を再計算しました",
+    "recomputeStarted": "バックグラウンドで連絡先の計算を開始しました",
+    "recomputeFailed": "再計算に失敗しました",
+    "markFriendSucceeded": "友人としてマークしました",
+    "markFriendFailed": "友人マークに失敗しました",
+    "unmarkFriendSucceeded": "マークを解除しました",
+    "unmarkFriendFailed": "マーク解除に失敗しました"
+  }
+}

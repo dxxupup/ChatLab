@@ -2,6 +2,8 @@ import { ref, computed, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { useLLMStore } from '@/stores/llm'
+import { useLLMService } from '@/services'
+import { canReuseExistingApiKey, getConnectionModeForConfig, type ConnectionMode } from './apiKeyReuse'
 
 // ==================== 类型 ====================
 
@@ -14,8 +16,6 @@ export interface AIServiceConfig {
   model?: string
   baseUrl?: string
   apiFormat?: string
-  disableThinking?: boolean
-  isReasoningModel?: boolean
   customModels?: Array<{ id: string; name: string }>
   createdAt: number
   updatedAt: number
@@ -36,8 +36,6 @@ export interface Provider {
   defaultBaseUrl: string
   models: Array<{ id: string; name: string; description?: string }>
 }
-
-export type ConnectionMode = 'preset' | 'local' | 'openai-compat'
 
 // ==================== Composable ====================
 
@@ -87,6 +85,7 @@ export function useAIConfigForm(props: {
   const showAddModelDialog = ref(false)
   const newModelName = ref('')
   const newModelId = ref('')
+  const newModelContextWindow = ref<number | undefined>(undefined)
   const compatModels = ref<Array<{ id: string; name: string }>>([])
 
   const formData = ref({
@@ -96,8 +95,6 @@ export function useAIConfigForm(props: {
     baseUrl: '',
     apiFormat: API_FORMAT_DEFAULT,
     customName: '',
-    disableThinking: true,
-    isReasoningModel: false,
   })
 
   const validationResult = ref<'idle' | 'valid' | 'invalid'>('idle')
@@ -153,19 +150,43 @@ export function useAIConfigForm(props: {
     return model ? !model.builtin : false
   })
 
+  const selectedModelContextWindow = computed(() => {
+    if (!formData.value.model) return undefined
+    const providerId = formData.value.provider || 'openai-compatible'
+    const model =
+      llmStore.getModelById(providerId, formData.value.model) || llmStore.findModelAcrossProviders(formData.value.model)
+    return model?.contextWindow
+  })
+
+  const canReuseStoredKey = computed(() => {
+    const { provider, apiKey, baseUrl } = formData.value
+    return canReuseExistingApiKey({
+      mode: props.mode.value,
+      existingApiKeySet: props.config.value?.apiKeySet,
+      hasNewApiKey: !!apiKey.trim(),
+      originalProvider: props.config.value?.provider,
+      currentProvider: provider,
+      originalConnectionMode: props.config.value ? getConnectionModeForConfig(props.config.value) : undefined,
+      currentConnectionMode: connectionMode.value,
+      originalBaseUrl: props.config.value?.baseUrl,
+      currentBaseUrl: baseUrl.trim() || undefined,
+    })
+  })
+
   const canSave = computed(() => {
     const { provider, apiKey, baseUrl, model } = formData.value
+    const existingKeySet = canReuseStoredKey.value
 
     if (isLocalMode.value) {
       return baseUrl.trim() && model.trim()
     }
 
     if (isOpenAICompat.value) {
-      return baseUrl.trim() && apiKey.trim() && model.trim()
+      return baseUrl.trim() && (apiKey.trim() || existingKeySet) && model.trim()
     }
 
     if (!provider) return false
-    return apiKey.trim()
+    return apiKey.trim() || existingKeySet
   })
 
   const apiFormatItems = computed(() =>
@@ -239,8 +260,6 @@ export function useAIConfigForm(props: {
       baseUrl: defaultProviderDef?.defaultBaseUrl || '',
       apiFormat: API_FORMAT_DEFAULT,
       customName: '',
-      disableThinking: true,
-      isReasoningModel: false,
     }
     validationResult.value = 'idle'
     validationMessage.value = ''
@@ -252,8 +271,7 @@ export function useAIConfigForm(props: {
     const hasModelInCatalog = !!(config.model && llmStore.getModelById(config.provider, config.model))
 
     if (isCompat) {
-      const looksLocal = !config.apiKeySet || (config.baseUrl?.includes('localhost') ?? false)
-      connectionMode.value = looksLocal ? 'local' : 'openai-compat'
+      connectionMode.value = getConnectionModeForConfig(config)
       if (config.customModels && config.customModels.length > 0) {
         compatModels.value = [...config.customModels]
       } else {
@@ -271,8 +289,6 @@ export function useAIConfigForm(props: {
       baseUrl: config.baseUrl || providerDef?.defaultBaseUrl || '',
       apiFormat: config.apiFormat || API_FORMAT_DEFAULT,
       customName: config.name || '',
-      disableThinking: config.disableThinking ?? true,
-      isReasoningModel: config.isReasoningModel ?? false,
     }
     validationResult.value = 'idle'
     validationMessage.value = ''
@@ -320,7 +336,7 @@ export function useAIConfigForm(props: {
   // ============ 远程模型获取 ============
 
   const isFetchingModels = ref(false)
-  const remoteModels = ref<Array<{ id: string; name: string; ownedBy?: string }>>([])
+  const remoteModels = ref<Array<{ id: string; name: string; ownedBy?: string; contextWindow?: number }>>([])
   const remoteModelsError = ref('')
   const showRemoteModelBrowser = ref(false)
 
@@ -341,28 +357,37 @@ export function useAIConfigForm(props: {
   const canFetchModels = computed(() => {
     if (effectiveApiFormat.value === 'anthropic-messages') return false
     const baseUrl = formData.value.baseUrl || currentProviderDef.value?.defaultBaseUrl || ''
-    const apiKey = formData.value.apiKey || (isLocalMode.value ? 'sk-no-key-required' : '')
-    return !!(baseUrl.trim() && apiKey.trim())
+    const hasKey = formData.value.apiKey.trim() || isLocalMode.value || canReuseStoredKey.value
+    return !!(baseUrl.trim() && hasKey)
   })
 
   async function fetchRemoteModels() {
     const baseUrl = formData.value.baseUrl || currentProviderDef.value?.defaultBaseUrl || ''
     const apiKey = formData.value.apiKey || (isLocalMode.value ? 'sk-no-key-required' : '')
-    if (!baseUrl || !apiKey) return
+    const canReuse = canReuseStoredKey.value
+    if (!baseUrl || (!apiKey && !canReuse)) return
+
+    const configId = !apiKey && canReuse ? props.config.value?.id : undefined
 
     isFetchingModels.value = true
     remoteModelsError.value = ''
     showRemoteModelBrowser.value = true
 
     try {
-      const result = await window.llmApi.fetchRemoteModels(
+      const result = await useLLMService().fetchRemoteModels(
         formData.value.provider || 'openai-compatible',
         apiKey,
         baseUrl,
-        effectiveApiFormat.value
+        effectiveApiFormat.value,
+        configId
       )
       if (result.success && result.models) {
-        remoteModels.value = result.models
+        const providerId = formData.value.provider || 'openai-compatible'
+        remoteModels.value = result.models.map((m) => {
+          if (m.contextWindow) return m
+          const catalogModel = llmStore.getModelById(providerId, m.id) || llmStore.findModelAcrossProviders(m.id)
+          return catalogModel?.contextWindow ? { ...m, contextWindow: catalogModel.contextWindow } : m
+        })
       } else {
         remoteModelsError.value = result.error || t('settings.aiConfig.modal.fetchModelsError')
       }
@@ -373,19 +398,38 @@ export function useAIConfigForm(props: {
     }
   }
 
-  async function addRemoteModel(model: { id: string; name: string }) {
+  async function addRemoteModel(model: { id: string; name: string; contextWindow?: number }) {
     if (isCompatMode.value) {
       if (!compatModels.value.some((m) => m.id === model.id)) {
         compatModels.value.push({ id: model.id, name: model.name })
+      }
+      const providerId = formData.value.provider || 'openai-compatible'
+      if (model.contextWindow && !llmStore.getModelById(providerId, model.id)?.contextWindow) {
+        try {
+          await useLLMService().addCustomModel({
+            id: model.id,
+            providerId,
+            name: model.name,
+            contextWindow: model.contextWindow,
+            capabilities: ['chat'],
+            recommendedFor: [],
+            description: '',
+            status: 'stable',
+          })
+          await llmStore.refreshConfigs()
+        } catch {
+          // already exists
+        }
       }
     } else {
       const providerId = formData.value.provider || 'openai-compatible'
       if (!catalogModels.value.some((m) => m.id === model.id)) {
         try {
-          await window.llmApi.addCustomModel({
+          await useLLMService().addCustomModel({
             id: model.id,
             providerId,
             name: model.name,
+            contextWindow: model.contextWindow || undefined,
             capabilities: ['chat'],
             recommendedFor: [],
             description: '',
@@ -413,6 +457,7 @@ export function useAIConfigForm(props: {
   function openAddModelDialog() {
     newModelName.value = ''
     newModelId.value = ''
+    newModelContextWindow.value = undefined
     showAddModelDialog.value = true
   }
 
@@ -433,10 +478,11 @@ export function useAIConfigForm(props: {
     const providerId = formData.value.provider || 'openai-compatible'
 
     try {
-      await window.llmApi.addCustomModel({
+      await useLLMService().addCustomModel({
         id: modelId,
         providerId,
         name: modelName,
+        contextWindow: newModelContextWindow.value || undefined,
         capabilities: ['chat'],
         recommendedFor: [],
         description: '',
@@ -448,6 +494,52 @@ export function useAIConfigForm(props: {
     } catch (error) {
       console.error('添加自定义模型失败：', error)
     }
+  }
+
+  const showEditModelDialog = ref(false)
+  const editModelContextWindow = ref<number | undefined>(undefined)
+  const editModelName = ref('')
+
+  function openEditModelDialog() {
+    const modelId = formData.value.model
+    if (!modelId) return
+    const providerId = formData.value.provider || 'openai-compatible'
+    const model = llmStore.getModelById(providerId, modelId)
+    editModelContextWindow.value = model?.contextWindow ?? undefined
+    editModelName.value = model?.name ?? ''
+    showEditModelDialog.value = true
+  }
+
+  async function confirmEditModel() {
+    const modelId = formData.value.model
+    if (!modelId) return
+    const providerId = formData.value.provider || 'openai-compatible'
+    try {
+      const updates: Record<string, unknown> = {
+        contextWindow: editModelContextWindow.value || undefined,
+      }
+      if (editModelName.value.trim()) {
+        updates.name = editModelName.value.trim()
+      }
+      const svc = useLLMService()
+      const result = await svc.updateCustomModel(providerId, modelId, updates)
+      if (!result.success) {
+        await svc.addCustomModel({
+          id: modelId,
+          providerId,
+          name: editModelName.value.trim() || modelId,
+          contextWindow: editModelContextWindow.value || undefined,
+          capabilities: ['chat'],
+          recommendedFor: [],
+          description: '',
+          status: 'stable',
+        })
+      }
+      await llmStore.refreshConfigs()
+    } catch (error) {
+      console.error('编辑模型失败：', error)
+    }
+    showEditModelDialog.value = false
   }
 
   async function deleteCustomModel(modelId: string) {
@@ -462,7 +554,7 @@ export function useAIConfigForm(props: {
 
     const providerId = formData.value.provider || 'openai-compatible'
     try {
-      await window.llmApi.deleteCustomModel(providerId, modelId)
+      await useLLMService().deleteCustomModel(providerId, modelId)
       await llmStore.refreshConfigs()
       if (formData.value.model === modelId) {
         const models = catalogModels.value
@@ -476,13 +568,15 @@ export function useAIConfigForm(props: {
   // ============ 验证 ============
 
   async function validateKey() {
-    const { provider, apiKey, baseUrl } = formData.value
+    const { provider, baseUrl } = formData.value
+    const apiKey = formData.value.apiKey.trim()
+    const canReuse = canReuseStoredKey.value
 
     if (!isPresetMode.value) {
       if (!baseUrl) return
-      if (isOpenAICompat.value && !apiKey) return
+      if (isOpenAICompat.value && !apiKey && !canReuse) return
     } else {
-      if (!provider || !apiKey) {
+      if (!provider || (!apiKey && !canReuse)) {
         validationResult.value = 'idle'
         validationMessage.value = ''
         return
@@ -492,13 +586,17 @@ export function useAIConfigForm(props: {
     isValidating.value = true
     validationResult.value = 'idle'
 
+    const configId = !apiKey && canReuse ? props.config.value?.id : undefined
+
     try {
-      const testApiKey = apiKey || 'sk-no-key-required'
-      const result = await window.llmApi.validateApiKey(
+      const testApiKey = !apiKey && canReuse ? '' : apiKey || 'sk-no-key-required'
+      const result = await useLLMService().validateApiKey(
         provider || 'openai-compatible',
         testApiKey,
         baseUrl || undefined,
-        formData.value.model || undefined
+        formData.value.model || undefined,
+        undefined,
+        configId
       )
       validationResult.value = result.success ? 'valid' : 'invalid'
       if (result.success) {
@@ -517,32 +615,22 @@ export function useAIConfigForm(props: {
   // ============ 保存 ============
 
   function generateName(): string {
-    let providerName: string
-
     if (isCompatMode.value && formData.value.baseUrl) {
       try {
         const url = new URL(formData.value.baseUrl)
-        providerName = url.hostname
+        return url.hostname
       } catch {
-        providerName = t('settings.aiConfig.modal.customService')
+        return t('settings.aiConfig.modal.customService')
       }
-    } else {
-      const def = currentProviderDef.value
-      providerName = def
-        ? getLocalizedProviderName(def.id) || def.name
-        : (() => {
-            const legacy = props.providers.value.find((p) => p.id === formData.value.provider)
-            if (legacy) return legacy.name
-            return formData.value.baseUrl || t('settings.aiConfig.modal.customService')
-          })()
     }
 
-    const modelId = formData.value.model.trim()
-    if (!modelId) return providerName
+    const def = currentProviderDef.value
+    if (def) return getLocalizedProviderName(def.id) || def.name
 
-    const modelDef = llmStore.getModelById(formData.value.provider, modelId)
-    const modelName = modelDef?.name || modelId
-    return `${providerName} - ${modelName}`
+    const legacy = props.providers.value.find((p) => p.id === formData.value.provider)
+    if (legacy) return legacy.name
+
+    return formData.value.baseUrl || t('settings.aiConfig.modal.customService')
   }
 
   async function doSave() {
@@ -555,22 +643,19 @@ export function useAIConfigForm(props: {
       }
       const finalName = formData.value.customName.trim() || generateName()
 
-      const isReasoning = formData.value.isReasoningModel
       const persistCustomModels =
         isCompatMode.value && compatModels.value.length > 0
           ? compatModels.value.map((m) => ({ id: m.id, name: m.name }))
           : undefined
       if (props.mode.value === 'add') {
         const savedApiFormat = isCompatMode.value ? formData.value.apiFormat || undefined : undefined
-        const result = await window.llmApi.addConfig({
+        const result = await useLLMService().addConfig({
           name: finalName,
           provider: finalProvider,
           apiKey: finalApiKey,
           model: formData.value.model.trim() || undefined,
           baseUrl: formData.value.baseUrl.trim() || undefined,
           apiFormat: savedApiFormat,
-          disableThinking: isReasoning ? formData.value.disableThinking : undefined,
-          isReasoningModel: isReasoning || undefined,
           customModels: persistCustomModels,
         })
 
@@ -588,16 +673,14 @@ export function useAIConfigForm(props: {
           model: formData.value.model.trim() || undefined,
           baseUrl: formData.value.baseUrl.trim() || undefined,
           apiFormat: savedApiFormat,
-          disableThinking: isReasoning ? formData.value.disableThinking : undefined,
-          isReasoningModel: isReasoning || undefined,
           customModels: persistCustomModels,
         }
 
-        if (formData.value.apiKey.trim()) {
-          updates.apiKey = formData.value.apiKey.trim()
+        if (formData.value.apiKey.trim() || isLocalMode.value) {
+          updates.apiKey = finalApiKey
         }
 
-        const result = await window.llmApi.updateConfig(props.config.value!.id, updates)
+        const result = await useLLMService().updateConfig(props.config.value!.id, updates)
 
         if (result.success) {
           props.onClose()
@@ -620,10 +703,26 @@ export function useAIConfigForm(props: {
       return doSave()
     }
 
+    const hasNewApiKey = !!formData.value.apiKey.trim()
+    const isEditWithExistingKey = canReuseExistingApiKey({
+      mode: props.mode.value,
+      existingApiKeySet: props.config.value?.apiKeySet,
+      hasNewApiKey,
+      originalProvider: props.config.value?.provider,
+      currentProvider: formData.value.provider,
+      originalConnectionMode: props.config.value ? getConnectionModeForConfig(props.config.value) : undefined,
+      currentConnectionMode: connectionMode.value,
+      originalBaseUrl: props.config.value?.baseUrl,
+      currentBaseUrl: formData.value.baseUrl.trim() || undefined,
+    })
+    if (isEditWithExistingKey) {
+      return doSave()
+    }
+
     isValidating.value = true
     try {
       const testApiKey = formData.value.apiKey.trim() || 'sk-no-key-required'
-      const result = await window.llmApi.validateApiKey(
+      const result = await useLLMService().validateApiKey(
         formData.value.provider || 'openai-compatible',
         testApiKey,
         formData.value.baseUrl.trim() || undefined,
@@ -693,6 +792,7 @@ export function useAIConfigForm(props: {
     showAddModelDialog,
     newModelName,
     newModelId,
+    newModelContextWindow,
     formData,
     validationResult,
     validationMessage,
@@ -707,7 +807,9 @@ export function useAIConfigForm(props: {
     isCompatMode,
     modelTabItems,
     selectedModelIsCustom,
+    selectedModelContextWindow,
     canSave,
+    canReuseStoredKey,
     apiFormatItems,
     modalTitle,
     resolvedApiUrl,
@@ -720,11 +822,18 @@ export function useAIConfigForm(props: {
     addedModelIds,
     canFetchModels,
 
+    // 编辑模型
+    showEditModelDialog,
+    editModelContextWindow,
+    editModelName,
+
     // 方法
     selectProvider,
     onConnectionModeChange,
     openAddModelDialog,
     confirmAddModel,
+    openEditModelDialog,
+    confirmEditModel,
     deleteCustomModel,
     validateKey,
     saveConfig,

@@ -1,8 +1,8 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
-  "include": ["src/env.d.ts", "src/**/*", "electron/preload/**/*.d.ts", "packages/**/*"],
+  "include": ["src/env.d.ts", "src/**/*", "apps/desktop/preload/**/*.d.ts", "apps/web-wasm/src/**/*", "packages/**/*"],
+  "exclude": ["**/dist/**", "packages/*/bin/**"],
   "compilerOptions": {
-    "baseUrl": ".",
     "target": "ESNext",
     "useDefineForClassFields": true,
     "module": "ESNext",
@@ -18,11 +18,12 @@
     "noUnusedLocals": true,
     "strictNullChecks": true,
     "allowJs": true,
+    "allowImportingTsExtensions": true,
     "forceConsistentCasingInFileNames": true,
     "paths": {
-      "@/*": ["src/*"],
-      "@electron/*": ["electron/*"],
-      "@openchatlab/*": ["packages/*"]
+      "@/*": ["./src/*"],
+      "@electron/*": ["./apps/desktop/*"],
+      "@openchatlab/*": ["./packages/*"]
     }
   }
 }

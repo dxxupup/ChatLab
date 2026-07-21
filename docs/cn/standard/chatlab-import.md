@@ -21,7 +21,7 @@ outline: deep
 
 1. **统一入口**：首次导入和增量导入使用同一个端点，调用方无需区分。
 2. **接口最小化**：1 个导入接口 + 2 个查询接口覆盖全部 Push 场景。
-3. **双层幂等**：请求级幂等（Idempotency-Key）+ 记录级去重（platformMessageId / 内容哈希），承诺 **at-least-once + deterministic dedupe**。
+3. **双层幂等**：请求级幂等（Idempotency-Key）+ 记录级去重（platformMessageId / 确定性 fallback key），承诺 **at-least-once + deterministic dedupe**。
 4. **同步优先**：小批量导入同步返回 `200 OK` 和写入结果。
 5. **默认自动更新**：meta 和 members 默认随导入请求自动更新，可通过 `options` 控制。
 
@@ -32,7 +32,7 @@ outline: deep
 ### 服务地址
 
 ```
-Base URL：http://<host>:<port>   （桌面端默认 127.0.0.1:5200）
+Base URL：http://<host>:<port>   （桌面端默认 127.0.0.1:3110）
 Prefix：  /api/v1
 ```
 
@@ -49,8 +49,7 @@ Token 在 ChatLab 设置页面生成，格式为 `clb_` + 64 字符 hex。
 ### Content-Type
 
 ```
-application/json         # 标准 JSON body（≤50MB）
-application/x-ndjson    # JSONL 流式（无大小限制）
+application/json    # 标准 JSON body（≤50MB）
 ```
 
 ---
@@ -81,8 +80,8 @@ application/x-ndjson    # JSONL 流式（无大小限制）
 
 | 优先级 | 场景 | 推荐格式 | 示例 |
 | --- | --- | --- | --- |
-| 1（首选） | 有平台原始 ID | `{platform}_{originalId}` | `wechat_xxx@chatroom`、`qq_123456789` |
-| 2 | 文件导入（有结构化 ID） | `{platform}_{meta.groupId}` 或 `{platform}_{对方platformId}` | `wechat_xxx@chatroom` |
+| 1（首选） | 有平台原始 ID | `{platform}_{originalId}` | `whatsapp_112233445566`、`qq_123456789` |
+| 2 | 文件导入（有结构化 ID） | `{platform}_{meta.groupId}` 或 `{platform}_{对方platformId}` | `whatsapp_112233445566` |
 | 3 | 文件导入（无结构化标识） | `file_{SHA256(文件内容)[:16]}` | `file_a1b2c3d4e5f6g7h8` |
 | 4（兜底） | 一次性导入 | `import_{UUID}` | `import_550e8400-e29b-41d4-a716-446655440000` |
 
@@ -96,9 +95,32 @@ application/x-ndjson    # JSONL 流式（无大小限制）
 | Header | 必填 | 说明 |
 | --- | --- | --- |
 | `Authorization` | 是 | `Bearer <token>` |
-| `Content-Type` | 是 | `application/json` 或 `application/x-ndjson` |
+| `Content-Type` | 是 | `application/json` |
 | `Idempotency-Key` | 建议 | 当前批次的唯一标识，用于重试安全。建议格式：`{sessionId}-{batchIndex}-{windowStart}` |
-| `X-Dry-Run` | 否 | 设为 `true` 时仅分析不写入，返回预估结果 |
+
+### 快速测试
+
+复制以下命令即可直接测试（将 `YOUR_TOKEN` 和端口替换为实际值）：
+
+```bash
+curl http://127.0.0.1:3110/api/v1/imports/group_abc123 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "chatlab": { "version": "0.0.2", "exportedAt": 1711468800, "generator": "test" },
+  "meta": { "name": "产品讨论群", "platform": "whatsapp", "type": "group", "groupId": "112233445566" },
+  "members": [
+    { "platformId": "user_a", "accountName": "张三", "roles": [{ "id": "owner" }] }
+  ],
+  "messages": [
+    { "platformMessageId": "msg_1001", "sender": "user_a", "timestamp": 1711468800, "type": 0, "content": "Hello" }
+  ]
+}'
+```
+
+成功时返回 `"success": true` 和写入统计；重复调用同一 `platformMessageId` 会被去重（`duplicateCount` 增加，`writtenCount` 不变）。
+
+---
 
 ### 请求 Body（JSON 模式）
 
@@ -111,15 +133,15 @@ application/x-ndjson    # JSONL 流式（无大小限制）
   },
   "meta": {
     "name": "产品讨论群",
-    "platform": "wechat",
+    "platform": "whatsapp",
     "type": "group",
-    "groupId": "xxx@chatroom",
+    "groupId": "112233445566",
     "groupAvatar": "data:image/jpeg;base64,...",
-    "ownerId": "wxid_owner"
+    "ownerId": "user_owner"
   },
   "members": [
     {
-      "platformId": "wxid_a",
+      "platformId": "user_a",
       "accountName": "张三",
       "groupNickname": "产品",
       "avatar": "data:image/jpeg;base64,...",
@@ -129,7 +151,7 @@ application/x-ndjson    # JSONL 流式（无大小限制）
   "messages": [
     {
       "platformMessageId": "msg_1001",
-      "sender": "wxid_a",
+      "sender": "user_a",
       "accountName": "张三",
       "groupNickname": "产品",
       "timestamp": 1711468800,
@@ -155,17 +177,6 @@ application/x-ndjson    # JSONL 流式（无大小限制）
 ::: tip 提示
 回填历史数据时建议传 `"metaUpdateMode": "none"` 防止旧群名覆盖当前值。
 :::
-
-### 请求 Body（JSONL 模式）
-
-每行一个 JSON 对象，通过 `_type` 字段区分类型。行顺序：`header` → `member`（零或多行） → `message`（一或多行）。
-
-```jsonl
-{"_type":"header","chatlab":{"version":"0.0.2","exportedAt":1711468800,"generator":"YourSystem/1.0"},"meta":{"name":"产品讨论群","platform":"wechat","type":"group","groupId":"xxx@chatroom"},"options":{"metaUpdateMode":"patch","memberUpdateMode":"upsert"}}
-{"_type":"member","platformId":"wxid_a","accountName":"张三","groupNickname":"产品"}
-{"_type":"message","platformMessageId":"msg_1001","sender":"wxid_a","accountName":"张三","timestamp":1711468800,"type":0,"content":"Hello"}
-{"_type":"message","platformMessageId":"msg_1002","sender":"wxid_b","accountName":"李四","timestamp":1711468860,"type":0,"content":"Hi"}
-```
 
 ### 各块携带规则
 
@@ -231,7 +242,7 @@ application/x-ndjson    # JSONL 流式（无大小限制）
 
 | 字段            | 类型   | 必填 | 说明                                   |
 | --------------- | ------ | ---- | -------------------------------------- |
-| `platformId`    | string | 是   | 成员在平台的唯一标识（QQ号、微信ID等） |
+| `platformId`    | string | 是   | 成员在平台的唯一标识（QQ号、用户ID等） |
 | `accountName`   | string | 建议 | 账号名称（不随群变化的原始昵称）       |
 | `groupNickname` | string | 否   | 群内专属昵称                           |
 | `avatar`        | string | 否   | 头像，base64 Data URL 或网络 URL       |
@@ -264,7 +275,7 @@ application/x-ndjson    # JSONL 流式（无大小限制）
 {
   "success": true,
   "data": {
-    "sessionId": "wechat_xxx@chatroom",
+    "sessionId": "group_abc123",
     "created": false,
     "batch": {
       "receivedCount": 5000,
@@ -309,17 +320,19 @@ application/x-ndjson    # JSONL 流式（无大小限制）
 **优先级：**
 
 1. 若消息提供了 `platformMessageId`，以此作为唯一键去重（高精度，推荐）。
-2. 若未提供 `platformMessageId`，退化为内容哈希去重：`sha256(timestamp + '\0' + sender + '\0' + contentTag + '\0' + normalizedContent)`
+2. 若未提供 `platformMessageId`，退化为确定性 fallback key：
+   `timestamp + sender + type + normalizedContent + replyToMessageId`。
 
 | 层次               | 机制                                            | 适用范围                      | 精度     |
 | ------------------ | ----------------------------------------------- | ----------------------------- | -------- |
 | 请求级幂等         | `Idempotency-Key`                               | 同一 HTTP 请求的重试          | 精确     |
 | 消息级去重（主键） | `platformMessageId`                             | 跨批次、跨窗口的同一条消息    | 精确     |
-| 消息级去重（降级） | 内容哈希 `sha256(timestamp + sender + content)` | 无 platformMessageId 时的兜底 | 最大努力 |
+| 消息级去重（降级） | 上述字段生成的确定性 fallback key                 | 无 platformMessageId 时的兜底 | 最大努力 |
 
 ::: warning 注意
 - 同一 `platformMessageId` 的消息不会被重复写入，即使 content 不同（以首次写入为准）
-- 内容哈希去重在"同一人、同一秒、完全相同内容"时判定为重复，存在极小概率误判
+- 两个不同的 `platformMessageId` 即使其他字段完全相同，也会保留为两条消息
+- fallback 去重在"同一人、同一秒、相同类型、相同规范化内容和相同回复目标"时判定为重复，存在极小概率误判
 - **强烈建议**外部数据源提供 `platformMessageId`，这是最可靠的去重依据
 :::
 
@@ -333,9 +346,8 @@ application/x-ndjson    # JSONL 流式（无大小限制）
 
 | 约束               | 值           | 说明                            |
 | ------------------ | ------------ | ------------------------------- |
-| JSON body 大小上限 | 50MB         | 超过返回 `BODY_TOO_LARGE` (413) |
-| JSONL body 大小    | 无限制       | 通过 stream 写入临时文件后处理  |
-| 建议每批消息数     | 5000 条      | 兼顾性能和内存占用              |
+| JSON body 大小上限 | 50MB    | 超过返回 `BODY_TOO_LARGE` (413) |
+| 建议每批消息数     | 5000 条 | 兼顾性能和内存占用              |
 
 ### 分批原则
 
@@ -351,7 +363,7 @@ ChatLab 不为调用方维护游标。推荐结构：
 
 ```json
 {
-  "sessionId": "wechat_xxx@chatroom",
+  "sessionId": "group_abc123",
   "lastSyncedTimestamp": 1711468800,
   "lastSyncedMessageId": "msg_900000"
 }
@@ -361,7 +373,7 @@ ChatLab 不为调用方维护游标。推荐结构：
 
 ### 并发约束
 
-当前版本：**同一时刻仅允许一个导入任务**。并发请求会收到 `IMPORT_IN_PROGRESS` (409) 错误。
+当前版本：**同一用户数据目录同一时刻仅允许一个写入型导入任务**。如果 Desktop、CLI、Web 或 Push API 已在向该数据目录导入，后续请求即使目标 sessionId 不同，也会收到 `IMPORT_IN_PROGRESS` (409) 错误。格式检测、导入分析等只读操作不受此限制。
 
 ---
 
@@ -373,19 +385,19 @@ ChatLab 不为调用方维护游标。推荐结构：
 1. 准备全量聊天数据，按时间顺序切分为 N 批（每批 ≤5000 条）
 
 2. 第一批请求：
-   POST /api/v1/imports/wechat_xxx@chatroom
+   POST /api/v1/imports/group_abc123
    Body: { chatlab, meta, members, messages }
    → 响应 created: true，会话创建成功
 
 3. 第 2~N 批请求：
-   POST /api/v1/imports/wechat_xxx@chatroom
+   POST /api/v1/imports/group_abc123
    Body: { messages }
    Idempotency-Key: {sessionId}-{batchIndex}-{windowStart}
 
 4. 每批成功后记录游标；失败用相同 Idempotency-Key 重试
 
 5. 全部批次完成后对账：
-   GET /api/v1/sessions/wechat_xxx@chatroom
+   GET /api/v1/sessions/group_abc123
    → 校验 totalCount、firstTimestamp、lastTimestamp
 ```
 
@@ -432,6 +444,7 @@ ChatLab 不为调用方维护游标。推荐结构：
 | `BODY_TOO_LARGE` | 413 | JSON body 超过 50MB | 否 |
 | `IMPORT_IN_PROGRESS` | 409 | 当前有其他导入正在执行 | 是 |
 | `IDEMPOTENCY_CONFLICT` | 409 | 相同幂等键但请求体不一致 | 否 |
+| `IDEMPOTENCY_PENDING` | 409 | 相同幂等键的首次请求仍在执行 | 是 |
 | `IMPORT_FAILED` | 500 | 导入过程内部错误 | 是 |
 | `SERVER_ERROR` | 500 | 服务内部错误 | 是 |
 

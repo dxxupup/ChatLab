@@ -1,17 +1,32 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useApiServerStore, type DataSource, type ImportSession } from '@/stores/apiServer'
 import { storeToRefs } from 'pinia'
-import { SubTabs } from '@/components/UI'
+import { SectionTabs } from '@/components/navigation'
+import { useLayoutStore } from '@/stores/layout'
 import DataSourceAddModal from './API/DataSourceAddModal.vue'
 import DataSourceEditModal from './API/DataSourceEditModal.vue'
+import McpSettingsTab from './McpSettingsTab.vue'
 
 const { t, locale } = useI18n()
 const store = useApiServerStore()
-const { config, status, loading, isRunning, hasError, isPortInUse, dataSources, pullingId } = storeToRefs(store)
+const { config, status, loading, isRunning, hasError, isPortInUse, dataSources, pullingIds, syncProgress, isWebMode } =
+  storeToRefs(store)
 
 const activeSubTab = ref('sync')
+const layoutStore = useLayoutStore()
+
+// 监听全局布局状态中的子 Tab 变化，自动切换当前子 Tab
+watch(
+  () => layoutStore.settingsSubTab,
+  (newSubTab) => {
+    if (layoutStore.settingsTab === 'api' && newSubTab && ['sync', 'api', 'mcp'].includes(newSubTab)) {
+      activeSubTab.value = newSubTab
+    }
+  },
+  { immediate: true }
+)
 
 const subTabs = computed(() => [
   {
@@ -24,11 +39,16 @@ const subTabs = computed(() => [
     label: t('settings.tabs.apiSubTabs.apiService'),
     icon: 'i-heroicons-server-stack',
   },
+  {
+    id: 'mcp',
+    label: t('settings.tabs.apiSubTabs.mcp'),
+    icon: 'i-heroicons-command-line',
+  },
 ])
 
 const tokenVisible = ref(false)
 const editingPort = ref(false)
-const portInput = ref(5200)
+const portInput = ref(3110)
 const copied = ref(false)
 
 const showAddModal = ref(false)
@@ -38,20 +58,19 @@ const showManageModal = ref(false)
 const managingDataSource = ref<DataSource | null>(null)
 const showDeleteModal = ref(false)
 const deletingDataSource = ref<DataSource | null>(null)
+const showDeleteSessionModal = ref(false)
+const deletingSession = ref<{ ds: DataSource; sess: ImportSession } | null>(null)
 
 let unlistenStartupError: (() => void) | null = null
-let unlistenPullResult: (() => void) | null = null
 
 onMounted(async () => {
   await store.refresh()
   portInput.value = config.value.port
   unlistenStartupError = store.listenStartupError()
-  unlistenPullResult = store.listenPullResult()
 })
 
 onUnmounted(() => {
   unlistenStartupError?.()
-  unlistenPullResult?.()
 })
 
 const maskedToken = computed(() => {
@@ -81,7 +100,9 @@ const apiBaseUrl = computed(() => {
 
 const apiDocUrl = computed(() => {
   const isChinese = locale.value === 'zh-CN' || locale.value === 'zh-TW'
-  return isChinese ? 'https://chatlab.fun/cn/standard/chatlab-api.html' : 'https://chatlab.fun/en/chatlab-api.html'
+  return isChinese
+    ? 'https://docs.chatlab.fun/cn/standard/chatlab-api'
+    : 'https://docs.chatlab.fun/en/standard/chatlab-api'
 })
 
 async function toggleEnabled() {
@@ -168,8 +189,25 @@ async function removeSource() {
   deletingDataSource.value = null
 }
 
-async function removeSession(ds: DataSource, sess: ImportSession) {
-  await store.removeImportSession(ds.id, sess.id)
+function confirmRemoveSession(ds: DataSource, sess: ImportSession) {
+  deletingSession.value = { ds, sess }
+  showDeleteSessionModal.value = true
+}
+
+async function removeSessionKeepData() {
+  if (!deletingSession.value) return
+  const { ds, sess } = deletingSession.value
+  await store.removeImportSession(ds.id, sess.id, false)
+  showDeleteSessionModal.value = false
+  deletingSession.value = null
+}
+
+async function removeSessionDeleteData() {
+  if (!deletingSession.value) return
+  const { ds, sess } = deletingSession.value
+  await store.removeImportSession(ds.id, sess.id, true)
+  showDeleteSessionModal.value = false
+  deletingSession.value = null
 }
 
 async function syncAllInSource(ds: DataSource) {
@@ -192,7 +230,7 @@ function subscribedRemoteIds(ds: DataSource): Set<string> {
 
 <template>
   <div class="flex h-full flex-col -mx-6 -mt-6">
-    <SubTabs v-model="activeSubTab" :items="subTabs" persist-key="apiSubTab" />
+    <SectionTabs v-model="activeSubTab" :items="subTabs" persist-key="apiSubTab" />
 
     <div class="flex-1 min-h-0 overflow-auto">
       <div class="space-y-6 px-6 pt-4 pb-6">
@@ -241,10 +279,27 @@ function subscribedRemoteIds(ds: DataSource): Set<string> {
                       <UButton size="xs" variant="ghost" @click="toggleSourceEnabled(ds)">
                         <UIcon :name="ds.enabled ? 'i-heroicons-pause' : 'i-heroicons-play'" class="h-3.5 w-3.5" />
                       </UButton>
-                      <UButton size="xs" variant="ghost" @click="syncAllInSource(ds)">
-                        <UIcon name="i-heroicons-arrow-path" class="h-3.5 w-3.5" />
+                      <UButton
+                        size="xs"
+                        variant="ghost"
+                        :disabled="pullingIds.has(ds.id) || ds.sessions.some((s) => pullingIds.has(s.id))"
+                        @click="syncAllInSource(ds)"
+                      >
+                        <UIcon
+                          name="i-heroicons-arrow-path"
+                          class="h-3.5 w-3.5"
+                          :class="{
+                            'animate-spin': pullingIds.has(ds.id) || ds.sessions.some((s) => pullingIds.has(s.id)),
+                          }"
+                        />
                       </UButton>
-                      <UButton size="xs" variant="ghost" color="error" @click="confirmDeleteSource(ds)">
+                      <UButton
+                        size="xs"
+                        variant="ghost"
+                        color="error"
+                        :disabled="ds.sessions.some((s) => pullingIds.has(s.id))"
+                        @click="confirmDeleteSource(ds)"
+                      >
                         <UIcon name="i-heroicons-trash" class="h-3.5 w-3.5" />
                       </UButton>
                     </div>
@@ -262,11 +317,13 @@ function subscribedRemoteIds(ds: DataSource): Set<string> {
                           <span
                             class="inline-block h-2 w-2 rounded-full"
                             :class="
-                              sess.lastStatus === 'success'
-                                ? 'bg-green-500'
-                                : sess.lastStatus === 'error'
-                                  ? 'bg-red-500'
-                                  : 'bg-gray-400'
+                              pullingIds.has(sess.id)
+                                ? 'animate-pulse bg-blue-500'
+                                : sess.lastStatus === 'success'
+                                  ? 'bg-green-500'
+                                  : sess.lastStatus === 'error'
+                                    ? 'bg-red-500'
+                                    : 'bg-gray-400'
                             "
                           ></span>
                           <span class="text-sm font-medium text-gray-900 dark:text-white">{{ sess.name }}</span>
@@ -275,22 +332,44 @@ function subscribedRemoteIds(ds: DataSource): Set<string> {
                           <UButton
                             size="xs"
                             variant="ghost"
-                            :loading="pullingId === sess.id"
+                            :disabled="pullingIds.has(sess.id)"
                             @click="syncSession(ds, sess)"
                           >
-                            <UIcon name="i-heroicons-arrow-path" class="h-3.5 w-3.5" />
+                            <UIcon
+                              name="i-heroicons-arrow-path"
+                              class="h-3.5 w-3.5"
+                              :class="{ 'animate-spin': pullingIds.has(sess.id) }"
+                            />
                           </UButton>
-                          <UButton size="xs" variant="ghost" color="error" @click="removeSession(ds, sess)">
+                          <UButton
+                            size="xs"
+                            variant="ghost"
+                            color="error"
+                            :disabled="pullingIds.has(sess.id)"
+                            @click="confirmRemoveSession(ds, sess)"
+                          >
                             <UIcon name="i-heroicons-trash" class="h-3.5 w-3.5" />
                           </UButton>
                         </div>
                       </div>
                       <div class="mt-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                        <span>
-                          {{ t('settings.api.dataSources.every') }} {{ ds.intervalMinutes }}
-                          {{ t('settings.api.dataSources.minutes') }}
-                        </span>
-                        <template v-if="sess.lastPullAt">
+                        <template v-if="syncProgress.get(sess.id)">
+                          <span class="text-blue-500">
+                            {{ t('settings.api.dataSources.syncing') }}...
+                            {{ syncProgress.get(sess.id)!.current }}
+                            {{ t('settings.api.dataSources.messages') }}
+                          </span>
+                        </template>
+                        <template v-else-if="pullingIds.has(sess.id) && !syncProgress.get(sess.id)">
+                          <span class="text-blue-500">{{ t('settings.api.dataSources.syncing') }}...</span>
+                        </template>
+                        <template v-else>
+                          <span>
+                            {{ t('settings.api.dataSources.every') }} {{ ds.intervalMinutes }}
+                            {{ t('settings.api.dataSources.minutes') }}
+                          </span>
+                        </template>
+                        <template v-if="!pullingIds.has(sess.id) && sess.lastPullAt">
                           <span class="text-gray-300 dark:text-gray-600">·</span>
                           <span class="text-gray-400">
                             {{ t('settings.api.dataSources.lastSync') }}: {{ formatTime(sess.lastPullAt) }}
@@ -323,118 +402,163 @@ function subscribedRemoteIds(ds: DataSource): Set<string> {
 
         <!-- ==================== API Service Sub-Tab ==================== -->
         <template v-if="activeSubTab === 'api'">
-          <!-- Service toggle -->
-          <div>
-            <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
-              <UIcon name="i-heroicons-server-stack" class="h-4 w-4 text-blue-500" />
-              {{ t('settings.api.service.title') }}
-            </h3>
-            <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
-              <div class="flex items-center justify-between">
-                <div class="flex-1 pr-4">
-                  <p class="text-sm font-medium text-gray-900 dark:text-white">
-                    {{ t('settings.api.service.enable') }}
-                  </p>
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('settings.api.service.enableDesc') }}
-                  </p>
+          <!-- Web mode: read-only server info -->
+          <template v-if="isWebMode">
+            <div>
+              <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+                <UIcon name="i-heroicons-server-stack" class="h-4 w-4 text-blue-500" />
+                {{ t('settings.api.service.title') }}
+              </h3>
+              <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+                <div class="flex items-center gap-2">
+                  <span class="inline-block h-2 w-2 rounded-full bg-green-500"></span>
+                  <span class="text-xs text-green-500">{{ t('settings.api.status.running') }}</span>
                 </div>
-                <USwitch :model-value="config.enabled" :loading="loading" @update:model-value="toggleEnabled" />
-              </div>
-              <div
-                v-if="config.enabled"
-                class="mt-3 flex items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
-              >
-                <span
-                  class="inline-block h-2 w-2 rounded-full"
-                  :class="isRunning ? 'bg-green-500' : hasError ? 'bg-red-500' : 'bg-gray-400'"
-                ></span>
-                <span class="text-xs" :class="statusColor">{{ statusText }}</span>
-                <span v-if="isRunning && status.port" class="ml-auto text-xs text-gray-500 dark:text-gray-400">
-                  {{ apiBaseUrl }}
-                </span>
-              </div>
-              <div
-                v-if="isPortInUse"
-                class="mt-2 rounded-md bg-red-50 p-2 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400"
-              >
-                {{ t('settings.api.service.portInUseHint') }}
-              </div>
-            </div>
-          </div>
-
-          <!-- Port -->
-          <div>
-            <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
-              <UIcon name="i-heroicons-globe-alt" class="h-4 w-4 text-purple-500" />
-              {{ t('settings.api.port.title') }}
-            </h3>
-            <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
-              <div class="flex items-center justify-between">
-                <div class="flex-1 pr-4">
-                  <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('settings.api.port.label') }}</p>
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('settings.api.port.desc') }}</p>
-                </div>
-                <div v-if="editingPort" class="flex items-center gap-2">
-                  <UInput v-model.number="portInput" type="number" :min="1024" :max="65535" size="sm" class="w-24" />
-                  <UButton size="xs" color="primary" :loading="loading" @click="savePort">
-                    {{ t('settings.api.port.save') }}
-                  </UButton>
-                  <UButton size="xs" variant="ghost" @click="cancelPortEdit">
-                    {{ t('settings.api.port.cancel') }}
-                  </UButton>
-                </div>
-                <div v-else class="flex items-center gap-2">
-                  <span class="font-mono text-sm text-gray-700 dark:text-gray-300">{{ config.port }}</span>
-                  <UButton size="xs" variant="ghost" @click="startPortEdit">
-                    {{ t('settings.api.port.edit') }}
-                  </UButton>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Token -->
-          <div>
-            <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
-              <UIcon name="i-heroicons-key" class="h-4 w-4 text-amber-500" />
-              {{ t('settings.api.token.title') }}
-            </h3>
-            <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
-              <p class="mb-2 text-sm font-medium text-gray-900 dark:text-white">{{ t('settings.api.token.label') }}</p>
-              <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">{{ t('settings.api.token.desc') }}</p>
-              <div v-if="config.token" class="flex items-center gap-2">
-                <code
-                  class="flex-1 rounded bg-gray-100 px-3 py-2 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                >
-                  {{ tokenVisible ? config.token : maskedToken }}
-                </code>
-                <UButton size="xs" variant="ghost" @click="tokenVisible = !tokenVisible">
-                  <UIcon :name="tokenVisible ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'" class="h-4 w-4" />
-                </UButton>
-                <UButton size="xs" variant="ghost" @click="copyToken">
-                  <UIcon :name="copied ? 'i-heroicons-check' : 'i-heroicons-clipboard'" class="h-4 w-4" />
-                </UButton>
-              </div>
-              <div v-else class="text-xs text-gray-400">{{ t('settings.api.token.noToken') }}</div>
-              <div class="mt-3">
-                <UButton variant="soft" color="warning" @click="handleRegenerateToken">
-                  <UIcon name="i-heroicons-arrow-path" class="mr-1 h-4 w-4" />
-                  {{ t('settings.api.token.regenerate') }}
-                </UButton>
-              </div>
-              <div class="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
-                <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('settings.api.usage.authHint') }}</p>
                 <div
-                  class="mt-1 rounded bg-gray-100 p-2 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                  class="mt-3 space-y-2 border-t border-gray-200 pt-3 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-400"
                 >
-                  Authorization: Bearer {{ config.token ? maskedToken : 'clb_...' }}
+                  <div class="flex items-center justify-between">
+                    <span>{{ t('settings.api.port.label') }}</span>
+                    <span class="font-mono text-gray-700 dark:text-gray-300">{{ config.port || '-' }}</span>
+                  </div>
+                  <div v-if="config.token" class="flex items-center justify-between gap-2">
+                    <span>{{ t('settings.api.token.label') }}</span>
+                    <div class="flex items-center gap-1">
+                      <code
+                        class="rounded bg-gray-100 px-2 py-0.5 font-mono text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                      >
+                        {{ tokenVisible ? config.token : maskedToken }}
+                      </code>
+                      <UButton size="xs" variant="ghost" @click="tokenVisible = !tokenVisible">
+                        <UIcon :name="tokenVisible ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'" class="h-3.5 w-3.5" />
+                      </UButton>
+                      <UButton size="xs" variant="ghost" @click="copyToken">
+                        <UIcon :name="copied ? 'i-heroicons-check' : 'i-heroicons-clipboard'" class="h-3.5 w-3.5" />
+                      </UButton>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </template>
 
-          <!-- Usage guide -->
+          <!-- Electron mode: full server controls -->
+          <template v-else>
+            <!-- Service toggle -->
+            <div>
+              <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+                <UIcon name="i-heroicons-server-stack" class="h-4 w-4 text-blue-500" />
+                {{ t('settings.api.service.title') }}
+              </h3>
+              <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+                <div class="flex items-center justify-between">
+                  <div class="flex-1 pr-4">
+                    <p class="text-sm font-medium text-gray-900 dark:text-white">
+                      {{ t('settings.api.service.enable') }}
+                    </p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('settings.api.service.enableDesc') }}
+                    </p>
+                  </div>
+                  <USwitch :model-value="config.enabled" :loading="loading" @update:model-value="toggleEnabled" />
+                </div>
+                <div
+                  v-if="config.enabled"
+                  class="mt-3 flex items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
+                >
+                  <span
+                    class="inline-block h-2 w-2 rounded-full"
+                    :class="isRunning ? 'bg-green-500' : hasError ? 'bg-red-500' : 'bg-gray-400'"
+                  ></span>
+                  <span class="text-xs" :class="statusColor">{{ statusText }}</span>
+                  <span v-if="isRunning && status.port" class="ml-auto text-xs text-gray-500 dark:text-gray-400">
+                    {{ apiBaseUrl }}
+                  </span>
+                </div>
+                <div
+                  v-if="isPortInUse"
+                  class="mt-2 rounded-md bg-red-50 p-2 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400"
+                >
+                  {{ t('settings.api.service.portInUseHint') }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Port -->
+            <div>
+              <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+                <UIcon name="i-heroicons-globe-alt" class="h-4 w-4 text-purple-500" />
+                {{ t('settings.api.port.title') }}
+              </h3>
+              <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+                <div class="flex items-center justify-between">
+                  <div class="flex-1 pr-4">
+                    <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('settings.api.port.label') }}</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('settings.api.port.desc') }}</p>
+                  </div>
+                  <div v-if="editingPort" class="flex items-center gap-2">
+                    <UInput v-model.number="portInput" type="number" :min="1024" :max="65535" size="sm" class="w-24" />
+                    <UButton size="xs" color="primary" :loading="loading" @click="savePort">
+                      {{ t('settings.api.port.save') }}
+                    </UButton>
+                    <UButton size="xs" variant="ghost" @click="cancelPortEdit">
+                      {{ t('settings.api.port.cancel') }}
+                    </UButton>
+                  </div>
+                  <div v-else class="flex items-center gap-2">
+                    <span class="font-mono text-sm text-gray-700 dark:text-gray-300">{{ config.port }}</span>
+                    <UButton size="xs" variant="ghost" @click="startPortEdit">
+                      {{ t('settings.api.port.edit') }}
+                    </UButton>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Token -->
+            <div>
+              <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+                <UIcon name="i-heroicons-key" class="h-4 w-4 text-amber-500" />
+                {{ t('settings.api.token.title') }}
+              </h3>
+              <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+                <p class="mb-2 text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('settings.api.token.label') }}
+                </p>
+                <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">{{ t('settings.api.token.desc') }}</p>
+                <div v-if="config.token" class="flex items-center gap-2">
+                  <code
+                    class="flex-1 rounded bg-gray-100 px-3 py-2 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                  >
+                    {{ tokenVisible ? config.token : maskedToken }}
+                  </code>
+                  <UButton size="xs" variant="ghost" @click="tokenVisible = !tokenVisible">
+                    <UIcon :name="tokenVisible ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'" class="h-4 w-4" />
+                  </UButton>
+                  <UButton size="xs" variant="ghost" @click="copyToken">
+                    <UIcon :name="copied ? 'i-heroicons-check' : 'i-heroicons-clipboard'" class="h-4 w-4" />
+                  </UButton>
+                </div>
+                <div v-else class="text-xs text-gray-400">{{ t('settings.api.token.noToken') }}</div>
+                <div class="mt-3">
+                  <UButton variant="soft" color="warning" @click="handleRegenerateToken">
+                    <UIcon name="i-heroicons-arrow-path" class="mr-1 h-4 w-4" />
+                    {{ t('settings.api.token.regenerate') }}
+                  </UButton>
+                </div>
+                <div class="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+                  <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('settings.api.usage.authHint') }}</p>
+                  <div
+                    class="mt-1 rounded bg-gray-100 p-2 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                  >
+                    Authorization: Bearer {{ config.token ? maskedToken : 'clb_...' }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Usage guide (shown in both modes) -->
           <div>
             <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
               <UIcon name="i-heroicons-book-open" class="h-4 w-4 text-teal-500" />
@@ -455,6 +579,11 @@ function subscribedRemoteIds(ds: DataSource): Set<string> {
             </div>
           </div>
         </template>
+
+        <!-- ==================== MCP Sub-Tab ==================== -->
+        <template v-if="activeSubTab === 'mcp'">
+          <McpSettingsTab />
+        </template>
       </div>
     </div>
 
@@ -473,7 +602,7 @@ function subscribedRemoteIds(ds: DataSource): Set<string> {
       @sessions-added="handleSessionsAdded"
     />
 
-    <!-- Delete confirmation modal -->
+    <!-- Delete data source confirmation modal -->
     <UModal v-model:open="showDeleteModal" :ui="{ content: 'z-[101]', overlay: 'z-[100]' }">
       <template #content>
         <div class="p-4">
@@ -486,6 +615,29 @@ function subscribedRemoteIds(ds: DataSource): Set<string> {
           <div class="flex justify-end gap-2">
             <UButton variant="soft" @click="showDeleteModal = false">{{ t('common.cancel') }}</UButton>
             <UButton color="error" @click="removeSource">{{ t('common.delete') }}</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Delete session confirmation modal -->
+    <UModal v-model:open="showDeleteSessionModal" :ui="{ content: 'z-[101]', overlay: 'z-[100]' }">
+      <template #content>
+        <div class="p-4">
+          <h3 class="mb-3 font-semibold text-gray-900 dark:text-white">
+            {{ t('settings.api.dataSources.deleteSessionConfirm.title') }}
+          </h3>
+          <p class="mb-4 text-sm text-gray-600 dark:text-gray-400">
+            {{ t('settings.api.dataSources.deleteSessionConfirm.message', { name: deletingSession?.sess.name }) }}
+          </p>
+          <div class="flex justify-end gap-2">
+            <UButton variant="soft" @click="showDeleteSessionModal = false">{{ t('common.cancel') }}</UButton>
+            <UButton variant="soft" @click="removeSessionKeepData">
+              {{ t('settings.api.dataSources.deleteSessionConfirm.keepData') }}
+            </UButton>
+            <UButton color="error" @click="removeSessionDeleteData">
+              {{ t('settings.api.dataSources.deleteSessionConfirm.deleteData') }}
+            </UButton>
           </div>
         </div>
       </template>

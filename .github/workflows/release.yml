@@ -20,9 +20,52 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  prepare_release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      version_tag: ${{ steps.meta.outputs.version_tag }}
+      npm_tag: ${{ steps.meta.outputs.npm_tag }}
+      is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
+    steps:
+      - name: Determine release metadata
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          fi
+
+          VERSION_TAG="v${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_tag=$VERSION_TAG" >> "$GITHUB_OUTPUT"
+
+          if [[ "$VERSION" =~ -(beta|alpha|rc)(\.|$) ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ "$VERSION" =~ -beta(\.|$) ]]; then
+            echo "npm_tag=beta" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" =~ -alpha(\.|$) ]]; then
+            echo "npm_tag=alpha" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" =~ -rc(\.|$) ]]; then
+            echo "npm_tag=rc" >> "$GITHUB_OUTPUT"
+          else
+            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Release version: $VERSION_TAG"
+
   # macOS 构建需要分架构
   # better-sqlite3 等原生模块会通过 prebuild 下载对应架构的预编译二进制
   build-mac:
+    needs: [prepare_release]
     strategy:
       matrix:
         include:
@@ -60,7 +103,49 @@ jobs:
       - name: Install dependencies
         run: |
           echo "node-linker=hoisted" >> .npmrc
-          pnpm install
+          pnpm install --frozen-lockfile
+
+      # Rust native parser：目标架构与 electron-builder --x64/--arm64 保持一致
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.arch == 'x64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/parser-native
+          key: ${{ matrix.arch }}
+
+      # --target 必须直接传给 napi（不能用 -- 透传给 cargo），
+      # 否则 napi 感知不到交叉编译，会按宿主架构（arm64）命名并构建产物
+      - name: Build native parser (${{ matrix.arch }})
+        shell: bash
+        run: |
+          if [ "${{ matrix.arch }}" == "x64" ]; then
+            pnpm --filter @openchatlab/parser-native build --target x86_64-apple-darwin
+          else
+            pnpm --filter @openchatlab/parser-native build
+          fi
+
+      - name: Verify native parser artifact
+        shell: bash
+        run: ls -la packages/parser-native/chatlab-parser-native.darwin-${{ matrix.arch }}.node
+
+      - name: Inject version into app package.json
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare_release.outputs.version }}"
+          echo "Injecting version: $VERSION"
+          node -e "
+            const fs = require('fs');
+            for (const p of ['apps/desktop/package.json', 'apps/cli/package.json']) {
+              const pkg = JSON.parse(fs.readFileSync(p, 'utf-8'));
+              pkg.version = '${VERSION}';
+              fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+              console.log(p + ' → ' + '${VERSION}');
+            }
+          "
 
       - name: Cache Electron and electron-builder binaries
         uses: actions/cache@v5
@@ -90,23 +175,143 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           # 分析服务
           APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
-        run: pnpm build && pnpm exec electron-builder --mac --${{ matrix.arch }} --config electron-builder.yml -p never
+        working-directory: apps/desktop
+        run: pnpm run build && pnpm exec electron-builder --mac --${{ matrix.arch }} --config electron-builder.yml -p never
+
+      - name: Verify native parser in packaged app (${{ matrix.arch }})
+        shell: bash
+        run: node scripts/check-desktop-native.mjs darwin-${{ matrix.arch }}
 
       - name: Upload macOS artifacts (${{ matrix.arch }})
         uses: actions/upload-artifact@v6
         with:
           name: ChatLab-mac-${{ matrix.arch }}
           path: |
-            dist/*.dmg
-            dist/*.zip
-            dist/*.yml
-            dist/*.json
-            dist/*.blockmap
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.json
+            apps/desktop/dist/*.blockmap
           if-no-files-found: warn
           retention-days: 1 # 只保留1天，Release后会上传到GitHub Releases
 
   build-win:
+    needs: [prepare_release]
     runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      # 只暴露 System32 的 tar.exe 到 PATH。不能把整个 System32 置前：
+      # 那会让 WSL 的 bash.EXE 遮蔽 Git Bash，导致后续所有 shell: bash 步骤
+      # （含 dtolnay/rust-toolchain 内部脚本）在无 WSL 发行版的 runner 上失败
+      - name: Use Windows system tar (fix zstd cache issue)
+        shell: pwsh
+        run: |
+          $tarDir = Join-Path $env:RUNNER_TEMP 'system-tar'
+          New-Item -ItemType Directory -Force -Path $tarDir | Out-Null
+          Copy-Item "$env:SystemRoot\System32\tar.exe" -Destination $tarDir
+          Add-Content -Path $env:GITHUB_PATH -Value $tarDir
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: |
+          echo "node-linker=hoisted" >> .npmrc
+          pnpm install --frozen-lockfile
+
+      # Rust native parser：Windows release 仅构建 x64（与 electron-builder --win 默认一致）
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/parser-native
+
+      - name: Build native parser (win x64)
+        run: pnpm --filter @openchatlab/parser-native build
+
+      - name: Verify native parser artifact
+        shell: bash
+        run: ls -la packages/parser-native/chatlab-parser-native.win32-x64-msvc.node
+
+      - name: Inject version into app package.json
+        shell: pwsh
+        run: |
+          $env:RELEASE_VERSION = "${{ needs.prepare_release.outputs.version }}"
+          Write-Host "Injecting version: $env:RELEASE_VERSION"
+          node -e "
+            const fs = require('fs');
+            const version = process.env.RELEASE_VERSION;
+            for (const p of ['apps/desktop/package.json', 'apps/cli/package.json']) {
+              const pkg = JSON.parse(fs.readFileSync(p, 'utf-8'));
+              pkg.version = version;
+              fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+              console.log(p + ' -> ' + version);
+            }
+          "
+
+      - name: Cache Electron and electron-builder binaries
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ runner.os }}-electron-builder-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-builder-
+
+      - name: Build Electron app for Windows
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # 分析服务
+          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+        working-directory: apps/desktop
+        run: pnpm run build:win
+
+      - name: Verify native parser in packaged app (win x64)
+        shell: bash
+        run: node scripts/check-desktop-native.mjs win32-x64-msvc
+
+      - name: Verify packaged SQLite runtime (win x64)
+        run: node scripts/check-packaged-sqlite.mjs
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: ChatLab-win
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.json
+            apps/desktop/dist/*.blockmap
+          if-no-files-found: warn
+          retention-days: 1 # 只保留1天，Release后会上传到GitHub Releases
+
+  build-cli:
+    needs: [prepare_release]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -136,113 +341,34 @@ jobs:
       - name: Install dependencies
         run: |
           echo "node-linker=hoisted" >> .npmrc
-          pnpm install
+          pnpm install --frozen-lockfile
 
-      - name: Cache Electron and electron-builder binaries
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/AppData/Local/electron/Cache
-            ~/AppData/Local/electron-builder/Cache
-          key: ${{ runner.os }}-electron-builder-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-builder-
+      - name: Inject CLI version
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('apps/cli/package.json', 'utf-8'));
+            pkg.version = '${{ needs.prepare_release.outputs.version }}';
+            fs.writeFileSync('apps/cli/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
 
-      - name: Build Electron app for Windows
+      - name: Build CLI (with Web UI)
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          # 分析服务
           APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
-        run: pnpm build:win
+        run: pnpm --filter chatlab-cli run build:full
 
-      - name: Upload Windows artifacts
+      - name: Upload CLI build output
         uses: actions/upload-artifact@v6
         with:
-          name: ChatLab-win
+          name: ChatLab-cli-build
           path: |
-            dist/*.exe
-            dist/*.yml
-            dist/*.json
-            dist/*.blockmap
-          if-no-files-found: warn
-          retention-days: 1 # 只保留1天，Release后会上传到GitHub Releases
-
-  build-linux:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            arch: x64
-          - os: ubuntu-24.04-arm
-            arch: arm64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          package-manager-cache: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-${{ matrix.arch }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-pnpm-store-
-
-      - name: Install dependencies
-        run: |
-          echo "node-linker=hoisted" >> .npmrc
-          pnpm install
-
-      - name: Cache Electron and electron-builder binaries
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cache/electron
-            ~/.cache/electron-builder
-          key: ${{ runner.os }}-${{ matrix.arch }}-electron-builder-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-electron-builder-
-
-      - name: Build Electron app for Linux (${{ matrix.arch }})
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
-        run: |
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            pnpm run build && pnpm exec electron-builder --linux deb --arm64 --config electron-builder.yml -p never
-          else
-            pnpm build:linux
-          fi
-
-      - name: Upload Linux artifacts (${{ matrix.arch }})
-        uses: actions/upload-artifact@v6
-        with:
-          name: ChatLab-linux-${{ matrix.arch }}
-          path: |
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.tar.gz
-            dist/*.yml
-            dist/*.json
-          if-no-files-found: warn
+            apps/cli/dist
+            apps/cli/dist-cli-web
+          if-no-files-found: error
           retention-days: 1
 
   release:
-    needs: [build-mac, build-win, build-linux]
+    needs: [prepare_release, build-mac, build-win, build-cli]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
 
@@ -254,51 +380,34 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: ChatLab-mac-x64
-          path: dist
+          path: release-dist
 
       - name: Download macOS artifacts (arm64)
         uses: actions/download-artifact@v8
         with:
           name: ChatLab-mac-arm64
-          path: dist
+          path: release-dist
 
       - name: Download Windows artifacts
         uses: actions/download-artifact@v8
         with:
           name: ChatLab-win
-          path: dist
-
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: ChatLab-linux-x64
-          path: dist
-
-      - name: Download Linux artifacts (arm64)
-        uses: actions/download-artifact@v8
-        with:
-          name: ChatLab-linux-arm64
-          path: dist
+          path: release-dist
 
       - name: List files
-        run: ls -la dist/
+        run: ls -la release-dist/
 
       - name: Generate Release Notes
         id: release_notes
         run: |
-          # 获取当前版本号
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            CURRENT_VERSION="v${{ inputs.version }}"
-          else
-            CURRENT_VERSION="${{ github.ref_name }}"
-          fi
-          VERSION_NUMBER="${CURRENT_VERSION#v}"
+          CURRENT_VERSION="${{ needs.prepare_release.outputs.version_tag }}"
+          VERSION_NUMBER="${{ needs.prepare_release.outputs.version }}"
 
           echo "Current version: $CURRENT_VERSION"
 
-          # 从 changelog JSON 中提取最新版本的 summary
-          EN_SUMMARY=$(jq -r '.[0].summary' docs/public/changelogs/en.json)
-          CN_SUMMARY=$(jq -r '.[0].summary' docs/public/changelogs/cn.json)
+          # 按当前版本号从 changelog JSON 中提取 summary，避免补发旧版本时误用第一条日志。
+          EN_SUMMARY=$(jq -r --arg version "$VERSION_NUMBER" 'map(select(.version == $version))[0].summary // "See changelog for details"' changelogs/en.json 2>/dev/null || echo "See changelog for details")
+          CN_SUMMARY=$(jq -r --arg version "$VERSION_NUMBER" 'map(select(.version == $version))[0].summary // "详见更新日志"' changelogs/cn.json 2>/dev/null || echo "详见更新日志")
 
           echo "EN summary: $EN_SUMMARY"
           echo "CN summary: $CN_SUMMARY"
@@ -315,7 +424,7 @@ jobs:
             echo ""
             echo "---"
             echo ""
-            echo "Full Changelog: [English](https://github.com/ChatLab/ChatLab/blob/main/docs/public/changelogs/en.json) | [中文](https://github.com/ChatLab/ChatLab/blob/main/docs/public/changelogs/cn.json) | [日本語](https://github.com/ChatLab/ChatLab/blob/main/docs/public/changelogs/ja.json)"
+            echo "Full Changelog: [English](https://github.com/ChatLab/ChatLab/blob/main/changelogs/en.md) | [中文](https://github.com/ChatLab/ChatLab/blob/main/changelogs/cn.md) | [日本語](https://github.com/ChatLab/ChatLab/blob/main/changelogs/ja.md)"
             echo ""
             echo "---"
             echo ""
@@ -326,9 +435,6 @@ jobs:
             echo "| Mac (Apple Silicon) | [ChatLab-${VERSION_NUMBER}-arm64.dmg](https://github.com/ChatLab/ChatLab/releases/download/v${VERSION_NUMBER}/ChatLab-${VERSION_NUMBER}-arm64.dmg) |"
             echo "| Mac (Intel) | [ChatLab-${VERSION_NUMBER}-x64.dmg](https://github.com/ChatLab/ChatLab/releases/download/v${VERSION_NUMBER}/ChatLab-${VERSION_NUMBER}-x64.dmg) |"
             echo "| Windows | [ChatLab-${VERSION_NUMBER}-setup.exe](https://github.com/ChatLab/ChatLab/releases/download/v${VERSION_NUMBER}/ChatLab-${VERSION_NUMBER}-setup.exe) |"
-            echo "| Linux (AppImage) | [ChatLab-${VERSION_NUMBER}.AppImage](https://github.com/ChatLab/ChatLab/releases/download/v${VERSION_NUMBER}/ChatLab-${VERSION_NUMBER}.AppImage) |"
-            echo "| Linux (deb, x86_64) | [chatlab_${VERSION_NUMBER}_amd64.deb](https://github.com/ChatLab/ChatLab/releases/download/v${VERSION_NUMBER}/chatlab_${VERSION_NUMBER}_amd64.deb) |"
-            echo "| Linux (deb, ARM64) | [chatlab_${VERSION_NUMBER}_arm64.deb](https://github.com/ChatLab/ChatLab/releases/download/v${VERSION_NUMBER}/chatlab_${VERSION_NUMBER}_arm64.deb) |"
           } > release_notes.md
 
           echo "Generated release notes:"
@@ -337,64 +443,47 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
-          name: ChatLab ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          tag_name: ${{ needs.prepare_release.outputs.version_tag }}
+          name: ChatLab ${{ needs.prepare_release.outputs.version_tag }}
           body_path: release_notes.md
           files: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.zip
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.tar.gz
-            dist/*.yml
-            dist/*.blockmap
+            release-dist/*.exe
+            release-dist/*.dmg
+            release-dist/*.zip
+            release-dist/*.yml
+            release-dist/*.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # 同步到 Cloudflare R2（国内镜像）
       # 注意：beta/alpha/rc 等预发布版本不上传到 R2
-      - name: Get version for R2 upload
-        id: version
+      - name: Print R2 upload metadata
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            VERSION_TAG="v${{ inputs.version }}"
-          else
-            VERSION_TAG="${{ github.ref_name }}"
-          fi
-          echo "tag=$VERSION_TAG" >> $GITHUB_OUTPUT
-
-          # 检查是否为预发布版本（包含 -beta、-alpha、-rc 等）
-          if [[ "$VERSION_TAG" =~ -(beta|alpha|rc)\. ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
-            echo "Detected prerelease version: $VERSION_TAG, will skip R2 upload"
-          else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
-            echo "Detected stable version: $VERSION_TAG, will upload to R2"
-          fi
+          echo "Release tag: ${{ needs.prepare_release.outputs.version_tag }}"
+          echo "Prerelease: ${{ needs.prepare_release.outputs.is_prerelease }}"
 
       # 上传所有文件到版本目录
       - name: Upload to Cloudflare R2 (version directory)
-        if: steps.version.outputs.is_prerelease == 'false'
+        if: needs.prepare_release.outputs.is_prerelease == 'false'
         uses: ryand56/r2-upload-action@latest
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
-          source-dir: dist
-          destination-dir: releases/download/${{ steps.version.outputs.tag }}
+          source-dir: release-dist
+          destination-dir: releases/download/${{ needs.prepare_release.outputs.version_tag }}
 
       # 准备 yml 文件用于根目录上传
       # 需要修改 yml 中的 path/url 为包含版本号的完整路径
       - name: Prepare yml files for root upload
-        if: steps.version.outputs.is_prerelease == 'false'
+        if: needs.prepare_release.outputs.is_prerelease == 'false'
         run: |
           mkdir -p dist-yml
-          VERSION_TAG="${{ steps.version.outputs.tag }}"
+          VERSION_TAG="${{ needs.prepare_release.outputs.version_tag }}"
 
           # 处理所有 yml 文件
-          for yml_file in dist/*.yml; do
+          for yml_file in release-dist/*.yml; do
             filename=$(basename "$yml_file")
             echo "Processing $filename..."
 
@@ -413,7 +502,7 @@ jobs:
 
       # 上传 yml 文件到根目录（覆盖旧版本，electron-updater 从这里检测更新）
       - name: Upload yml files to Cloudflare R2 (root directory)
-        if: steps.version.outputs.is_prerelease == 'false'
+        if: needs.prepare_release.outputs.is_prerelease == 'false'
         uses: ryand56/r2-upload-action@latest
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
@@ -422,3 +511,57 @@ jobs:
           r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
           source-dir: dist-yml
           destination-dir: releases/download
+
+  publish-cli:
+    needs: [prepare_release, build-cli]
+    runs-on: ubuntu-latest
+
+    # 必须显式声明 id-token 写入权限，用于 OIDC 与 npm 握手交换临时 Token
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Inject CLI version
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('apps/cli/package.json', 'utf-8'));
+            pkg.version = '${{ needs.prepare_release.outputs.version }}';
+            fs.writeFileSync('apps/cli/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Download CLI build output
+        uses: actions/download-artifact@v8
+        with:
+          name: ChatLab-cli-build
+          path: apps/cli
+
+      - name: Copy README for npm publish
+        run: cp README.md apps/cli/README.md
+
+      - name: Publish to npm
+        working-directory: apps/cli
+        run: npm publish --ignore-scripts --provenance --tag ${{ needs.prepare_release.outputs.npm_tag }}
+
+  cleanup-r2:
+    needs: [prepare_release, release]
+    if: needs.prepare_release.outputs.is_prerelease == 'false'
+    uses: ./.github/workflows/cleanup-r2.yml
+    with:
+      keep_count: '3'
+    secrets:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}

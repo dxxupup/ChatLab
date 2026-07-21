@@ -3,7 +3,7 @@
  * 聊天记录查看器 Drawer
  * 主组件，组合筛选面板、消息列表、会话时间线等子组件
  */
-import { ref, watch, toRaw, nextTick, onMounted } from 'vue'
+import { computed, ref, watch, toRaw, nextTick, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import FilterPanel from './FilterPanel.vue'
 import MessageList from './MessageList.vue'
@@ -11,7 +11,9 @@ import SessionTimeline from './SessionTimeline.vue'
 import type { ChatRecordQuery } from './types'
 import { useLayoutStore } from '@/stores/layout'
 import { useSessionStore } from '@/stores/session'
+import { useSessionIndexService } from '@/services'
 import { storeToRefs } from 'pinia'
+import { preserveChatRecordSessionId, resolveChatRecordSessionId } from './query-session'
 
 const { t } = useI18n()
 const layoutStore = useLayoutStore()
@@ -30,6 +32,7 @@ const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
 
 // 本地查询条件（可编辑的副本）
 const localQuery = ref<ChatRecordQuery>({})
+const effectiveSessionId = computed(() => resolveChatRecordSessionId(localQuery.value, currentSessionId.value))
 
 // 消息数量
 const messageCount = ref(0)
@@ -48,12 +51,12 @@ const matchedSessionIds = ref<Set<number> | undefined>(undefined)
 
 // 应用筛选
 function handleApplyFilter(query: ChatRecordQuery) {
-  localQuery.value = query
+  localQuery.value = preserveChatRecordSessionId(query, localQuery.value)
 }
 
 // 重置筛选
 function handleResetFilter() {
-  localQuery.value = {}
+  localQuery.value = preserveChatRecordSessionId({}, localQuery.value)
   matchedSessionIds.value = undefined
 }
 
@@ -129,17 +132,16 @@ function handleSessionSelect(_sessionId: number, firstMessageId: number) {
 // 处理跳转到消息（查看上下文）
 function handleJumpToMessage(messageId: number) {
   // 清空筛选条件，只保留 scrollToMessageId
-  localQuery.value = {
-    scrollToMessageId: messageId,
-  }
+  localQuery.value = preserveChatRecordSessionId({ scrollToMessageId: messageId }, localQuery.value)
 }
 
 // 加载会话列表缓存
 async function loadSessionsCache() {
-  if (!currentSessionId.value) return
+  const sessionId = effectiveSessionId.value
+  if (!sessionId) return
 
   try {
-    const sessions = await window.sessionApi.getSessions(currentSessionId.value)
+    const sessions = await useSessionIndexService().getSessions(sessionId)
     sessionsCache.value = sessions.map((s) => ({
       id: s.id,
       startTs: s.startTs,
@@ -180,9 +182,19 @@ watch(
 </script>
 
 <template>
-  <UDrawer v-model:open="layoutStore.showChatRecordDrawer" direction="right" :handle="false" :ui="{ content: 'z-50' }">
+  <UDrawer
+    v-model:open="layoutStore.showChatRecordDrawer"
+    direction="right"
+    :handle="false"
+    handle-only
+    :ui="{ content: 'z-50' }"
+  >
     <template #content>
-      <div class="flex h-full w-[680px] flex-col bg-white dark:bg-gray-900" style="-webkit-app-region: no-drag">
+      <div
+        data-vaul-no-drag
+        class="chat-record-drawer-content flex h-full w-[750px] flex-col bg-white dark:bg-page-dark"
+        style="-webkit-app-region: no-drag"
+      >
         <!-- 头部 -->
         <div
           class="flex items-center justify-between border-b border-gray-200 px-4 dark:border-gray-800"
@@ -199,15 +211,20 @@ watch(
         </div>
 
         <!-- 筛选面板 -->
-        <FilterPanel :query="localQuery" @apply="handleApplyFilter" @reset="handleResetFilter" />
+        <FilterPanel
+          :query="localQuery"
+          :session-id="effectiveSessionId || undefined"
+          @apply="handleApplyFilter"
+          @reset="handleResetFilter"
+        />
 
         <!-- 主内容区：时间线 + 消息列表 -->
         <div class="flex min-h-0 flex-1">
           <!-- 会话时间线 -->
           <SessionTimeline
-            v-if="currentSessionId"
+            v-if="effectiveSessionId"
             v-model:collapsed="timelineCollapsed"
-            :session-id="currentSessionId"
+            :session-id="effectiveSessionId"
             :active-session-id="activeSessionId"
             :filter-start-ts="localQuery.startTs"
             :filter-end-ts="localQuery.endTs"
@@ -236,3 +253,11 @@ watch(
     </template>
   </UDrawer>
 </template>
+
+<style scoped>
+.chat-record-drawer-content :deep(.chat-record-message-content),
+.chat-record-drawer-content :deep(.chat-record-message-content *) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+</style>

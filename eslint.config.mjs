@@ -67,5 +67,73 @@ export default defineConfigWithVueTs(
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
     },
+  },
+
+  // desktop 侧 better-sqlite3 必须显式携带 Electron-ABI nativeBinding，
+  // 否则 dev 环境会加载 node_modules 的 Node ABI 绑定并触发 NODE_MODULE_VERSION 报错。
+  // 新代码请优先走统一入口：worker 用 dbCore openRawDatabase()/openDatabase()，
+  // 主进程用 database/core 的 openDatabase()/createDatabase()。
+  {
+    files: ['apps/desktop/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "NewExpression[callee.name='Database']:not(:has(Property[key.name='nativeBinding']))",
+          message:
+            'Desktop new Database() must pass nativeBinding. Use dbCore openRawDatabase()/openDatabase() in workers, or database/core helpers (resolveDesktopNativeBinding()) in the main process.',
+        },
+      ],
+    },
+  },
+
+  // Standalone browser runtime and browser service adapters must not pull in
+  // Electron, Node-only runtimes, AI runtimes, or CLI backend implementation.
+  {
+    files: ['packages/web-runtime/src/**/*.ts', 'src/services/**/browser.ts'],
+    ignores: ['**/*.test.ts', '**/*.spec.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'electron',
+              message: 'Standalone browser code cannot depend on Electron.',
+            },
+            {
+              name: '@openchatlab/node-runtime',
+              message: 'Standalone browser code cannot depend on the Node runtime.',
+            },
+            {
+              name: '@openchatlab/http-routes',
+              message: 'Standalone browser code cannot depend on HTTP server routes.',
+            },
+            {
+              name: '@openchatlab/tools',
+              message: 'Standalone browser MVP does not include the AI tool runtime.',
+            },
+            {
+              name: '@openchatlab/config',
+              message: 'Standalone browser code cannot depend on the Node-backed config package.',
+            },
+            {
+              name: '@openchatlab/parser',
+              message: 'Browser code must use an explicit browser-safe parser subpath, not the Node file-path parser.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['node:*', '@electron/*', '**/apps/cli/**', '@/services/ai/**'],
+              message: 'Standalone browser runtime and adapters must stay browser-only.',
+            },
+            {
+              group: ['@openchatlab/parser/src/**'],
+              message: 'Standalone browser code must use the public @openchatlab/parser/browser entrypoint.',
+            },
+          ],
+        },
+      ],
+    },
   }
 )

@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { useScreenCapture } from '@/composables'
 import { ref, onMounted } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useLayoutStore } from '@/stores/layout'
 import { useI18n } from 'vue-i18n'
 
 /**
@@ -24,16 +22,23 @@ const props = withDefaults(
     targetElement?: HTMLElement | null
     /** 当 type='element' 时，从按钮向上查找目标元素的选择器 */
     targetSelector?: string
+    /** 是否应用 Markdown 列表渲染兼容修复（仅截取 Markdown 内容时传 true） */
+    markdownFix?: boolean
+    /** 是否对截图内容进行渐进式缩窄；传入数字时作为基准宽度 */
+    progressiveNarrowing?: number | boolean
+    /** 是否为截图增加外框留白 */
+    captureFrame?: boolean
+    /** 按钮颜色，默认 primary */
+    color?: string
   }>(),
   {
     size: 'sm',
     type: 'page',
+    color: 'primary',
   }
 )
 
 const { isCapturing, capturePage, captureElement } = useScreenCapture()
-const layoutStore = useLayoutStore()
-const { screenshotMobileAdapt } = storeToRefs(layoutStore)
 
 // 生成唯一 ID 用于隐藏按钮自身
 const buttonId = ref('')
@@ -44,10 +49,11 @@ onMounted(() => {
 async function handleCapture(event: Event) {
   const btn = event.currentTarget as HTMLElement
 
-  // 根据用户设置决定是否启用移动端适配
   const defaultOptions = {
     hideSelectors: [`#${buttonId.value}`],
-    mobileWidth: screenshotMobileAdapt.value ? true : undefined,
+    progressiveNarrowing: props.progressiveNarrowing,
+    captureFrame: props.captureFrame,
+    markdownFix: props.markdownFix || undefined,
   }
 
   if (props.type === 'page') {
@@ -74,7 +80,8 @@ async function handleCapture(event: Event) {
       :id="buttonId"
       icon="i-heroicons-camera"
       variant="ghost"
-      color="primary"
+      :color="color"
+      :class="color !== 'primary' ? 'hover:bg-gray-100 dark:hover:bg-gray-800' : ''"
       :size="size"
       :loading="isCapturing"
       @click="handleCapture"

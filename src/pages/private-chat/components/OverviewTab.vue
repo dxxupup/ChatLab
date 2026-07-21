@@ -20,7 +20,6 @@ const props = defineProps<{
   hourlyActivity: HourlyActivity[]
   dailyActivity: DailyActivity[]
   timeRange: { start: number; end: number } | null
-  selectedYear: number | null
   filteredMessageCount: number
   filteredMemberCount: number
   timeFilter?: { startTs?: number; endTs?: number }
@@ -74,7 +73,7 @@ const comparisonChartData = computed<EChartPieData>(() => {
 </script>
 
 <template>
-  <div class="main-content mx-auto max-w-[920px] space-y-6 p-6">
+  <div class="main-content mx-auto max-w-[920px] space-y-4 p-4 sm:space-y-6 sm:p-6">
     <!-- 私聊身份卡 + 关键指标 -->
     <OverviewIdentityCard
       :session="session"
@@ -82,8 +81,8 @@ const comparisonChartData = computed<EChartPieData>(() => {
       :message-types="messageTypes"
       :hourly-activity="hourlyActivity"
       :time-range="timeRange"
-      :selected-year="selectedYear"
       :filtered-message-count="filteredMessageCount"
+      :filtered-member-count="filteredMemberCount"
       :time-filter="timeFilter"
     />
 
@@ -91,14 +90,14 @@ const comparisonChartData = computed<EChartPieData>(() => {
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <!-- 消息类型分布 -->
       <SectionCard :title="t('analysis.overview.messageTypeDistribution')" :show-divider="false">
-        <div class="p-5">
+        <div class="p-3 sm:p-5">
           <EChartPie :data="typeChartData" :height="280" />
         </div>
       </SectionCard>
 
       <!-- 双方消息占比饼图 -->
       <SectionCard v-if="memberComparisonData" :title="t('analysis.overview.memberComparison')" :show-divider="false">
-        <div class="p-5">
+        <div class="p-3 sm:p-5">
           <EChartPie :data="comparisonChartData" :height="280" />
         </div>
       </SectionCard>

@@ -5,15 +5,15 @@
   "save": "保存",
   "edit": "編集",
   "add": "追加",
-  "rename": "名前変更",
   "capture": "スクリーンショット",
   "close": "閉じる",
   "back": "戻る",
   "done": "完了",
   "retry": "リトライ",
+  "initFailed": "アプリの初期化に失敗しました",
+  "webWasmWorkspaceBusy": "Web WASM は別のタブで開かれています。もう一方の ChatLab Web WASM タブを閉じてから再試行してください。",
   "loading": "読み込み中...",
   "initializing": "初期化中...",
-  "noData": "データがありません",
   "noResults": "結果が見つかりません",
   "export": "エクスポート",
   "exportSuccess": "エクスポートに成功しました",
@@ -21,25 +21,10 @@
   "generating": "生成中...",
   "regenerate": "再生成",
   "openFolder": "フォルダーを開く",
+  "viewChatRecords": "チャット履歴を表示",
   "errorNoAIConfig": "先に設定でAIサービスを構成してください",
-  "reset": "リセット",
   "error": {
-    "general": "操作に失敗しました。再試行してください",
-    "network": "ネットワークエラー",
     "unknown": "不明なエラー"
-  },
-  "attachment": {
-    "image": "画像",
-    "video": "動画",
-    "audio": "音声",
-    "file": "ファイル",
-    "sticker": "スタンプ",
-    "link": "リンク"
-  },
-  "unit": {
-    "messages": "件のメッセージ",
-    "members": "人",
-    "days": "日"
   },
   "messageType": {
     "text": "テキスト",
@@ -110,14 +95,12 @@
       "custom": "カスタム"
     },
     "recent": {
-      "halfYear": "半年間",
       "oneYear": "1年間",
       "twoYears": "2年間",
       "fiveYears": "5年間",
       "all": "すべて"
     },
     "display": {
-      "recent180": "最近半年間",
       "recent365": "最近1年間",
       "recent730": "最近2年間",
       "recent1825": "最近5年間"
@@ -131,5 +114,24 @@
   },
   "userSelect": {
     "allMembers": "すべてのメンバー"
+  },
+  "memberSearchSelect": {
+    "placeholder": "メンバーを検索",
+    "noSecondary": "他の名前はありません"
+  },
+  "login": {
+    "description": "このサービスは認証が必要です。API Tokenを入力してください。",
+    "tokenLabel": "API Token",
+    "tokenPlaceholder": "clb_xxxxxxxx",
+    "submit": "ログイン",
+    "hint": "Tokenは起動ログ、config.toml、または --token フラグで確認できます",
+    "errorEmpty": "Tokenを入力してください",
+    "errorInvalid": "無効なTokenです。確認してもう一度お試しください",
+    "errorNetwork": "ネットワーク接続に失敗しました",
+    "rememberDevice": "このデバイスを記憶する",
+    "rememberWarning": "信頼できるデバイスでのみ使用してください。Tokenがブラウザに保存されます",
+    "logoutTitle": "アカウント",
+    "logoutDesc": "現在のセッションからログアウト",
+    "logout": "ログアウト"
   }
 }

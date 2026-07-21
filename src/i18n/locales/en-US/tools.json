@@ -1,14 +1,12 @@
 {
-  "title": "Manage",
-  "description": "Chat record management",
-  "tabs": {
-    "batchManage": "Batch Manage"
-  },
   "batchManage": {
-    "title": "Batch Delete",
-    "description": "Select chat records to delete",
     "searchPlaceholder": "Search conversation name",
     "searchResult": "Found {count} / {total}",
+    "ownerIssues": "{count} conversations have not set who you are",
+    "ownerStatus": {
+      "missing": "Not set",
+      "unresolved": "Needs review"
+    },
     "noSearchResult": "No matching chat records found",
     "selectAll": "Select All",
     "shiftClickHint": "Hold Shift to select a range",
@@ -18,13 +16,10 @@
     "confirmTitle": "Confirm Delete",
     "confirmMessage": "Are you sure you want to delete {count} selected chat record(s)? This action cannot be undone.",
     "deleting": "Deleting...",
-    "success": "Successfully deleted {count} chat record(s)",
-    "error": "Delete failed: {error}",
-    "messageCount": "{count} messages",
-    "importedAt": "Imported {time}",
     "columns": {
       "name": "Name",
       "platform": "Platform",
+      "owner": "Me",
       "messages": "Messages",
       "summaries": "AI Summaries",
       "aiChats": "AI Chats",

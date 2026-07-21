@@ -5,15 +5,15 @@
   "save": "儲存",
   "edit": "編輯",
   "add": "新增",
-  "rename": "重新命名",
   "capture": "截圖",
   "close": "關閉",
   "back": "返回上一頁",
   "done": "完成",
   "retry": "重試",
+  "initFailed": "應用程式初始化失敗",
+  "webWasmWorkspaceBusy": "Web WASM 已在另一個分頁中開啟。請關閉另一個 ChatLab Web WASM 分頁後重試。",
   "loading": "載入中...",
   "initializing": "初始化中...",
-  "noData": "暫無資料",
   "noResults": "無匹配結果",
   "export": "匯出",
   "exportSuccess": "匯出成功",
@@ -21,25 +21,10 @@
   "generating": "產生中...",
   "regenerate": "重新產生",
   "openFolder": "開啟資料夾",
+  "viewChatRecords": "檢視聊天紀錄",
   "errorNoAIConfig": "請先在設定中設定 AI 服務",
-  "reset": "重設",
   "error": {
-    "general": "操作失敗，請重試",
-    "network": "網路錯誤",
     "unknown": "未知錯誤"
-  },
-  "attachment": {
-    "image": "圖片",
-    "video": "影片",
-    "audio": "音訊",
-    "file": "檔案",
-    "sticker": "貼圖",
-    "link": "連結"
-  },
-  "unit": {
-    "messages": "條訊息",
-    "members": "位成員",
-    "days": "天"
   },
   "messageType": {
     "text": "文字",
@@ -110,14 +95,12 @@
       "custom": "自訂"
     },
     "recent": {
-      "halfYear": "近半年",
       "oneYear": "近一年",
       "twoYears": "近兩年",
       "fiveYears": "近五年",
       "all": "全部"
     },
     "display": {
-      "recent180": "最近半年",
       "recent365": "最近一年",
       "recent730": "最近兩年",
       "recent1825": "最近五年"
@@ -131,5 +114,24 @@
   },
   "userSelect": {
     "allMembers": "全部成員"
+  },
+  "memberSearchSelect": {
+    "placeholder": "搜尋成員",
+    "noSecondary": "無其他名稱"
+  },
+  "login": {
+    "description": "此服務已開啟認證保護，請輸入 API Token 登入",
+    "tokenLabel": "API Token",
+    "tokenPlaceholder": "clb_xxxxxxxx",
+    "submit": "登入",
+    "hint": "Token 可在啟動日誌、config.toml 或 --token 啟動參數中取得",
+    "errorEmpty": "請輸入 Token",
+    "errorInvalid": "Token 無效，請檢查後重試",
+    "errorNetwork": "網路連線失敗",
+    "rememberDevice": "記住此裝置",
+    "rememberWarning": "僅在可信裝置上勾選，Token 將持久保存在瀏覽器中",
+    "logoutTitle": "帳戶",
+    "logoutDesc": "退出目前認證登入",
+    "logout": "登出"
   }
 }

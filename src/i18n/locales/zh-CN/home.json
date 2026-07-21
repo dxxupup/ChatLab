@@ -1,25 +1,29 @@
 {
-  "title": "ChatLab",
-  "subtitle": "重构你的社交记忆",
-  "features": {
-    "privacy": {
-      "title": "隐私至上",
-      "description": "聊天记录本地存储本地分析，保护你的隐私。"
-    },
-    "analysis": {
-      "title": "多维度分析",
-      "description": "从榜单到语录，全方位解读群聊数据，发现隐藏的趣味。"
-    },
-    "ai": {
-      "title": "智能 Agent",
-      "description": "内置 AI Agent，智能回答关于群聊的一切疑问，挖掘数据背后的趣事。"
-    }
+  "tagline": "探索新的聊天记忆",
+  "tabs": {
+    "file": "文件导入",
+    "api": "API 导入",
+    "cli": "CLI 导入",
+    "autoSyncTitle": "自动同步",
+    "autoSyncDescription": "由 ChatLab 定时从外部数据源拉取新增聊天记录。",
+    "autoSyncButton": "配置自动同步",
+    "apiPushTitle": "API 推送",
+    "apiPushDescription": "让第三方工具、插件或脚本通过本地 API 主动写入。",
+    "apiPushButton": "配置 API 服务",
+    "agentImportTitle": "使用 AI Agent 导入",
+    "agentImportDescription": "安装官方Skill，使用Skill自动导入聊天记录。",
+    "manualCliTitle": "手动使用 CLI",
+    "manualCliDescription": "适合终端操作、批处理脚本和可重复的自动化流程。",
+    "copyCommand": "复制命令",
+    "viewDocs": "查看文档"
   },
   "import": {
     "dropHint": "松开鼠标导入文件",
     "clickHint": "点击选择或拖拽聊天记录导入",
     "multipleHint": "支持同时选择或拖拽多个文件",
     "selectFiles": "选择聊天记录文件",
+    "selectFolder": "选择导出文件夹",
+    "importFolder": "导入文件夹",
     "chatRecords": "聊天记录",
     "allFiles": "所有文件",
     "progress": {
@@ -27,19 +31,30 @@
       "reading": "正在读取文件...",
       "parsing": "正在解析消息...",
       "saving": "正在写入数据库...",
+      "indexing": "正在构建搜索索引...",
       "done": "导入完成",
       "error": "导入中断"
     },
     "processed": "已处理 {count} 条消息",
-    "tutorial": "如何导出聊天记录",
     "viewLog": "查看导入日志",
     "cannotReadPath": "无法读取文件路径",
-    "preparing": "准备导入...",
     "errors": {
       "no_file_selected": "未选择文件",
       "import_failed": "导入失败",
+      "import_in_progress": "已有导入任务正在进行，请稍后重试",
       "unrecognized_format": "无法识别的文件格式",
       "no_messages": "未解析到任何消息，请检查文件格式是否正确",
+      "no_chat_selected": "未选择聊天",
+      "archive_single_file_required": "压缩包需要单独选择并导入",
+      "archive_unsupported": "暂不支持此压缩包格式",
+      "archive_encrypted": "不支持加密压缩包",
+      "archive_corrupt": "压缩包已损坏或内容不完整",
+      "archive_unsafe_path": "压缩包包含不安全的文件路径",
+      "archive_limit_exceeded": "压缩包超过安全处理限制",
+      "google_chat_structure_not_found": "未找到 Google Chat 导出数据",
+      "google_chat_conversation_incomplete": "Google Chat 会话文件不完整",
+      "import_source_not_found": "导入源已不存在，请重新选择压缩包",
+      "import_source_expired": "导入源已过期，请重新选择压缩包",
       "actionHint": "你还可以尝试下方手动匹配或查看日志："
     },
     "diagnostics": {
@@ -48,6 +63,12 @@
       "written": " / 写入：",
       "skipped": " / 跳过："
     },
+    "outcome": {
+      "created": "已创建新会话",
+      "ambiguous": "发现多个可能的已有会话，未自动合并，已创建新会话",
+      "incremental": "已增量导入 {newCount} 条消息，跳过 {duplicateCount} 条重复消息",
+      "unchanged": "内容已导入，没有新增消息"
+    },
     "batch": {
       "importing": "正在批量导入",
       "progressCount": "第 {current} 个 / 共 {total} 个",
@@ -55,26 +76,33 @@
       "waiting": "等待中",
       "skipped": "已跳过",
       "success": "导入成功",
+      "created": "已创建新会话",
+      "ambiguous": "候选会话不唯一，已创建新会话",
+      "incremental": "新增 {newCount} 条，跳过 {duplicateCount} 条重复消息",
+      "unchanged": "内容已导入，无新增消息",
       "completed": "批量导入完成",
       "summary": "成功 {success} 个，失败 {failed} 个，跳过 {cancelled} 个",
       "view": "查看"
     },
     "options": {
-      "title": "更多选项",
       "mergeImport": "合并导入",
       "mergeImportHint": "勾选后，多个文件将合并为一个聊天记录"
     },
     "merge": {
       "importing": "正在合并",
       "parsing": "正在解析文件...",
-      "parsingFile": "正在解析: {name}",
       "merging": "正在合并消息...",
       "completed": "合并完成",
       "completedHint": "{count} 个文件已合并",
       "messageCount": "{count} 条消息",
-      "failed": "合并失败",
-      "cancel": "取消合并"
+      "failed": "合并失败"
     }
+  },
+  "demo": {
+    "viewExample": "查看示例 Demo",
+    "downloading": "正在下载示例数据...",
+    "importing": "正在导入示例数据...",
+    "failed": "示例数据加载失败，请检查网络连接后重试"
   },
   "migration": {
     "title": "数据库需要升级",
@@ -98,6 +126,8 @@
     "chatCount": "共 {count} 个聊天",
     "selected": "已选 {count} 个",
     "messageCount": "{count} 条消息",
+    "memberCount": "{count} 位成员",
+    "empty": "空会话",
     "import": "导入 ({count})",
     "noChats": "未发现任何聊天"
   },
@@ -107,6 +137,9 @@
     "manualSelect": "手动选择格式",
     "confirm": "使用此格式导入"
   },
+  "quickStart": {
+    "export": "新手引导"
+  },
   "footer": {
     "website": "官网",
     "terms": "使用条款"
@@ -114,7 +147,6 @@
   "changelog": {
     "title": "版本日志",
     "subtitle": "查看所有版本更新内容",
-    "viewChangelog": "版本日志",
     "latest": "最新版本",
     "current": "当前版本",
     "total": "共 {count} 个版本",
@@ -127,7 +159,8 @@
       "refactor": "重构优化",
       "docs": "文档更新",
       "chore": "其他优化",
-      "style": "样式优化"
+      "style": "样式优化",
+      "ci": "CI/构建"
     }
   }
 }

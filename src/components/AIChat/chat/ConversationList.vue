@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import dayjs from 'dayjs'
+import { useAIService } from '@/services'
 
 const { t } = useI18n()
 
@@ -45,7 +46,7 @@ const menuOpenId = ref<string | null>(null)
 async function loadConversations() {
   isLoading.value = true
   try {
-    conversations.value = await window.aiApi.getConversations(props.sessionId)
+    conversations.value = await useAIService().getAIChats(props.sessionId)
   } catch (error) {
     console.error('加载对话列表失败：', error)
   } finally {
@@ -115,7 +116,7 @@ async function saveTitle(convId: string) {
   if (props.disabled) return
   if (editingTitle.value.trim()) {
     try {
-      await window.aiApi.updateConversationTitle(convId, editingTitle.value.trim())
+      await useAIService().updateAIChatTitle(convId, editingTitle.value.trim())
       const conv = conversations.value.find((c) => c.id === convId)
       if (conv) {
         conv.title = editingTitle.value.trim()
@@ -127,11 +128,26 @@ async function saveTitle(convId: string) {
   editingId.value = null
 }
 
+function handleMenuRename(conv: Conversation) {
+  menuOpenId.value = null
+  startEditing(conv)
+}
+
+function handleMenuCopyId(convId: string) {
+  menuOpenId.value = null
+  navigator.clipboard.writeText(convId)
+}
+
+function handleMenuDelete(convId: string) {
+  menuOpenId.value = null
+  handleDelete(convId)
+}
+
 // 删除对话
 async function handleDelete(convId: string) {
   if (props.disabled) return
   try {
-    await window.aiApi.deleteConversation(convId)
+    await useAIService().deleteAIChat(convId)
     conversations.value = conversations.value.filter((c) => c.id !== convId)
     emit('delete', convId)
   } catch (error) {
@@ -160,13 +176,17 @@ defineExpose({
 
 <template>
   <div
-    class="flex flex-col border-r border-gray-200 bg-white transition-all dark:border-gray-800 dark:bg-gray-900"
-    :class="isCollapsed ? 'w-10' : 'w-64'"
+    class="m-3 flex h-[calc(100%-1.5rem)] shrink-0 flex-col overflow-hidden rounded-lg bg-white transition-all duration-300 ease-in-out dark:bg-sidebar-dark"
+    :class="isCollapsed ? 'w-14' : 'w-64'"
   >
     <!-- 头部 -->
     <div
-      class="flex items-center border-b border-gray-200 dark:border-gray-800"
-      :class="isCollapsed ? 'justify-center px-0 py-2' : 'justify-between pl-3 pr-2 py-2'"
+      class="flex items-center"
+      :class="
+        isCollapsed
+          ? 'justify-center px-2 pb-2 pt-5'
+          : 'justify-between border-b border-gray-200 py-2 pl-3 pr-2 dark:border-gray-800'
+      "
     >
       <template v-if="!isCollapsed">
         <button
@@ -178,19 +198,24 @@ defineExpose({
           <UIcon name="i-heroicons-plus" class="h-3.5 w-3.5" />
           <span>{{ t('ai.chat.conversation.newConversation') }}</span>
         </button>
-        <button
-          class="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+        <UButton
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          class="group flex h-9 w-9 cursor-pointer items-center justify-center rounded-full hover:bg-gray-200/60 dark:hover:bg-white/[0.06]"
           @click="isCollapsed = !isCollapsed"
         >
-          <UIcon name="i-heroicons-chevron-left" class="h-4 w-4" />
-        </button>
+          <UIcon name="i-lucide-panel-right" class="size-4 scale-x-[-1] group-hover:hidden" />
+          <UIcon name="i-lucide-panel-right-close" class="size-4 hidden scale-x-[-1] group-hover:block" />
+        </UButton>
       </template>
       <template v-else>
         <button
-          class="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          type="button"
+          class="group relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-full hover:bg-gray-200/60 dark:hover:bg-white/[0.06]"
           @click="isCollapsed = !isCollapsed"
         >
-          <UIcon name="i-heroicons-chevron-right" class="h-4 w-4" />
+          <UIcon name="i-lucide-panel-right-open" class="size-4 scale-x-[-1]" />
         </button>
       </template>
     </div>
@@ -246,7 +271,7 @@ defineExpose({
               <template v-if="editingId === conv.id">
                 <input
                   v-model="editingTitle"
-                  class="w-full rounded border-none bg-white px-2 py-1 text-sm shadow-sm outline-none ring-1 ring-gray-200 focus:ring-2 focus:ring-primary-500 dark:bg-gray-900 dark:ring-gray-700"
+                  class="w-full rounded border-none bg-white px-2 py-1 text-sm shadow-sm outline-none ring-1 ring-gray-200 focus:ring-2 focus:ring-primary-500 dark:bg-page-dark dark:ring-gray-700"
                   :placeholder="t('ai.chat.conversation.titlePlaceholder')"
                   autoFocus
                   @blur="saveTitle(conv.id)"
@@ -283,15 +308,22 @@ defineExpose({
                           <button
                             class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
                             :disabled="disabled"
-                            @click="menuOpenId = null; startEditing(conv)"
+                            @click="handleMenuRename(conv)"
                           >
                             <UIcon name="i-heroicons-pencil" class="h-3.5 w-3.5" />
                             {{ t('ai.chat.conversation.rename') }}
                           </button>
                           <button
+                            class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+                            @click="handleMenuCopyId(conv.id)"
+                          >
+                            <UIcon name="i-heroicons-clipboard-document" class="h-3.5 w-3.5" />
+                            {{ t('ai.chat.conversation.copyId') }}
+                          </button>
+                          <button
                             class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-xs text-red-500 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
                             :disabled="disabled"
-                            @click="menuOpenId = null; handleDelete(conv.id)"
+                            @click="handleMenuDelete(conv.id)"
                           >
                             <UIcon name="i-heroicons-trash" class="h-3.5 w-3.5" />
                             {{ t('ai.chat.conversation.delete') }}
@@ -309,28 +341,34 @@ defineExpose({
     </div>
 
     <!-- 折叠状态列表 -->
-    <div v-else class="flex flex-1 flex-col items-center gap-2 overflow-y-auto py-2">
+    <div v-else class="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-2 pb-2">
       <button
-        class="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-pink-500 dark:hover:bg-gray-800"
+        class="flex h-10 w-10 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-200/40 hover:text-primary-600 dark:text-gray-300 dark:hover:bg-white/[0.06] dark:hover:text-primary-400"
         :title="t('ai.chat.conversation.newConversation')"
         :disabled="disabled"
         :class="{ 'cursor-not-allowed opacity-50': disabled }"
         @click="!disabled && emit('create')"
       >
-        <UIcon name="i-heroicons-plus" class="h-4 w-4" />
+        <UIcon name="i-heroicons-plus" class="h-5 w-5" />
       </button>
-
-      <div class="h-px w-6 bg-gray-200 dark:bg-gray-800"></div>
 
       <button
         v-for="conv in conversations"
         :key="conv.id"
-        class="rounded p-1 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
-        :class="[activeId === conv.id ? 'text-pink-500' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300']"
+        class="relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-200"
+        :class="[
+          activeId === conv.id
+            ? 'bg-gray-200/50 text-primary-600 dark:bg-white/[0.07] dark:text-primary-400 dark:ring-1 dark:ring-white/10'
+            : 'text-gray-600 hover:bg-gray-200/40 dark:text-gray-300 dark:hover:bg-white/[0.06]',
+        ]"
         :title="getTitle(conv)"
         @click="emit('select', conv.id)"
       >
-        <UIcon name="i-heroicons-chat-bubble-left" class="h-4 w-4" />
+        <span
+          v-if="activeId === conv.id"
+          class="absolute -left-2 top-1/2 h-4.5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary-500"
+        />
+        <UIcon name="i-heroicons-chat-bubble-left" class="h-5 w-5" />
       </button>
     </div>
   </div>

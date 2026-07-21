@@ -1,9 +1,19 @@
 /**
  * ChatLab API 服务状态 Store (hierarchical data source model)
+ *
+ * Supports dual transport:
+ * - Electron: window.apiServerApi (IPC)
+ * - CLI Web: HTTP fetch to /_web/automation/* endpoints
  */
 
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+import { IS_ELECTRON } from '@/utils/platform'
+import { useSessionStore } from './session'
+import { useSessionIndexService } from '@/services/session-index/service'
+import { getSessionGapThreshold } from '@/composables/useUiConfig'
+import { fetchWithAuth } from '@/services/utils/http'
+import { createSyncResultPoller } from './syncResultPolling'
 
 export interface ApiServerConfig {
   enabled: boolean
@@ -62,10 +72,197 @@ export interface RemoteSessionDiscoveryResult {
   page?: RemoteSessionDiscoveryPage
 }
 
+// ==================== Transport abstraction ====================
+
+interface ApiTransport {
+  getConfig(): Promise<ApiServerConfig>
+  getStatus(): Promise<ApiServerStatus>
+  setEnabled(enabled: boolean): Promise<ApiServerStatus>
+  setPort(port: number): Promise<ApiServerStatus>
+  regenerateToken(): Promise<ApiServerConfig>
+  onStartupError(cb: (data: { error: string }) => void): () => void
+  getDataSources(): Promise<DataSource[]>
+  addDataSource(partial: {
+    name?: string
+    baseUrl: string
+    token: string
+    intervalMinutes: number
+    pullLimit?: number
+  }): Promise<DataSource>
+  updateDataSource(
+    id: string,
+    updates: Partial<Pick<DataSource, 'name' | 'baseUrl' | 'token' | 'intervalMinutes' | 'pullLimit' | 'enabled'>>
+  ): Promise<DataSource | null>
+  deleteDataSource(id: string): Promise<boolean>
+  addImportSessions(
+    sourceId: string,
+    sessions: Array<{ name: string; remoteSessionId: string }>
+  ): Promise<ImportSession[]>
+  removeImportSession(sourceId: string, sessionId: string, deleteData?: boolean): Promise<boolean>
+  triggerPull(sourceId: string, sessionId?: string): Promise<{ success: boolean; error?: string }>
+  triggerPullAll(sourceId: string): Promise<{ success: boolean; error?: string }>
+  onPullResult(cb: () => void): () => void
+  fetchRemoteSessions(
+    baseUrl: string,
+    token?: string,
+    query?: { keyword?: string; limit?: number; cursor?: string }
+  ): Promise<RemoteSessionDiscoveryResult>
+}
+
+function createElectronTransport(): ApiTransport {
+  const api = window.apiServerApi
+  const http = createWebTransport()
+  return {
+    getConfig: () => api.getConfig(),
+    getStatus: () => api.getStatus(),
+    setEnabled: (enabled) => api.setEnabled(enabled),
+    setPort: (port) => api.setPort(port),
+    regenerateToken: () => api.regenerateToken(),
+    onStartupError: (cb) => api.onStartupError(cb),
+    getDataSources: () => http.getDataSources(),
+    addDataSource: (partial) => http.addDataSource(partial),
+    updateDataSource: (id, updates) => http.updateDataSource(id, updates),
+    deleteDataSource: (id) => http.deleteDataSource(id),
+    addImportSessions: (sourceId, sessions) => http.addImportSessions(sourceId, sessions),
+    removeImportSession: (sourceId, sessionId, deleteData?) =>
+      http.removeImportSession(sourceId, sessionId, deleteData),
+    triggerPull: (sourceId, sessionId?) => http.triggerPull(sourceId, sessionId),
+    triggerPullAll: (sourceId) => http.triggerPullAll(sourceId),
+    onPullResult: (cb) => http.onPullResult(cb),
+    fetchRemoteSessions: (baseUrl, token?, query?) => http.fetchRemoteSessions(baseUrl, token, query),
+  }
+}
+
+function createWebTransport(): ApiTransport {
+  const noop = () => () => {}
+
+  async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+    const resp = await fetchWithAuth(url, options)
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}))
+      const errorBody = body as { error?: unknown }
+      const errorMessage =
+        typeof errorBody.error === 'string'
+          ? errorBody.error
+          : typeof errorBody.error === 'object' &&
+              errorBody.error &&
+              'message' in errorBody.error &&
+              typeof errorBody.error.message === 'string'
+            ? errorBody.error.message
+            : `HTTP ${resp.status}`
+      throw new Error(errorMessage)
+    }
+    return resp.json()
+  }
+
+  return {
+    getConfig: () => fetchJson('/_web/automation/config'),
+
+    getStatus: async () => ({
+      running: true,
+      port: null,
+      startedAt: null,
+      error: null,
+    }),
+
+    setEnabled: async () => ({
+      running: true,
+      port: null,
+      startedAt: null,
+      error: null,
+    }),
+
+    setPort: async () => ({
+      running: true,
+      port: null,
+      startedAt: null,
+      error: null,
+    }),
+
+    regenerateToken: async () => fetchJson('/_web/automation/config'),
+
+    onStartupError: noop,
+
+    getDataSources: () => fetchJson('/_web/automation/data-sources'),
+
+    addDataSource: (partial) =>
+      fetchJson('/_web/automation/data-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(partial),
+      }),
+
+    updateDataSource: (id, updates) =>
+      fetchJson(`/_web/automation/data-sources/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      }),
+
+    deleteDataSource: async (id) => {
+      const result = await fetchJson<{ success: boolean }>(`/_web/automation/data-sources/${id}`, {
+        method: 'DELETE',
+      })
+      return result.success
+    },
+
+    addImportSessions: (sourceId, sessions) =>
+      fetchJson(`/_web/automation/data-sources/${sourceId}/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessions }),
+      }),
+
+    removeImportSession: async (sourceId, sessionId, deleteData?) => {
+      const qs = deleteData ? '?deleteData=true' : ''
+      const result = await fetchJson<{ success: boolean }>(
+        `/_web/automation/data-sources/${sourceId}/sessions/${sessionId}${qs}`,
+        { method: 'DELETE' }
+      )
+      return result.success
+    },
+
+    triggerPull: (sourceId, sessionId?) =>
+      fetchJson(`/_web/automation/data-sources/${sourceId}/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      }),
+
+    triggerPullAll: (sourceId) => fetchJson(`/_web/automation/data-sources/${sourceId}/pull-all`, { method: 'POST' }),
+
+    onPullResult: (cb) =>
+      createSyncResultPoller({
+        loadDataSources: () => fetchJson('/_web/automation/data-sources'),
+        onResult: cb,
+      }),
+
+    fetchRemoteSessions: async (baseUrl, token?, query?) => {
+      const params = new URLSearchParams({ baseUrl })
+      if (token) params.set('token', token)
+      if (query?.keyword) params.set('keyword', query.keyword)
+      if (query?.limit) params.set('limit', String(query.limit))
+      if (query?.cursor) params.set('cursor', query.cursor)
+      return fetchJson(`/_web/automation/remote-sessions?${params}`)
+    },
+  }
+}
+
+function getTransport(): ApiTransport {
+  if (IS_ELECTRON && typeof window !== 'undefined' && window.apiServerApi) {
+    return createElectronTransport()
+  }
+  return createWebTransport()
+}
+
+// ==================== Store ====================
+
 export const useApiServerStore = defineStore('apiServer', () => {
+  const transport = getTransport()
+
   const config = ref<ApiServerConfig>({
     enabled: false,
-    port: 5200,
+    port: 3110,
     token: '',
     createdAt: 0,
   })
@@ -79,15 +276,18 @@ export const useApiServerStore = defineStore('apiServer', () => {
 
   const loading = ref(false)
   const dataSources = ref<DataSource[]>([])
-  const pullingId = ref<string | null>(null)
+  const pullingIds = ref(new Set<string>())
+  const syncProgress = ref<Map<string, { current: number; pages: number }>>(new Map())
+  const available = computed(() => true)
 
   const isRunning = computed(() => status.value.running)
   const hasError = computed(() => !!status.value.error)
   const isPortInUse = computed(() => status.value.error?.startsWith('PORT_IN_USE') ?? false)
+  const isWebMode = computed(() => !IS_ELECTRON)
 
   async function fetchConfig() {
     try {
-      config.value = await window.apiServerApi.getConfig()
+      config.value = await transport.getConfig()
     } catch (err) {
       console.error('[ApiServerStore] Failed to fetch config:', err)
     }
@@ -95,7 +295,7 @@ export const useApiServerStore = defineStore('apiServer', () => {
 
   async function fetchStatus() {
     try {
-      status.value = await window.apiServerApi.getStatus()
+      status.value = await transport.getStatus()
     } catch (err) {
       console.error('[ApiServerStore] Failed to fetch status:', err)
     }
@@ -108,7 +308,7 @@ export const useApiServerStore = defineStore('apiServer', () => {
   async function setEnabled(enabled: boolean) {
     loading.value = true
     try {
-      status.value = await window.apiServerApi.setEnabled(enabled)
+      status.value = await transport.setEnabled(enabled)
       await fetchConfig()
     } catch (err) {
       console.error('[ApiServerStore] Failed to set enabled:', err)
@@ -120,7 +320,7 @@ export const useApiServerStore = defineStore('apiServer', () => {
   async function setPort(port: number) {
     loading.value = true
     try {
-      status.value = await window.apiServerApi.setPort(port)
+      status.value = await transport.setPort(port)
       await fetchConfig()
     } catch (err) {
       console.error('[ApiServerStore] Failed to set port:', err)
@@ -131,14 +331,14 @@ export const useApiServerStore = defineStore('apiServer', () => {
 
   async function regenerateToken() {
     try {
-      config.value = await window.apiServerApi.regenerateToken()
+      config.value = await transport.regenerateToken()
     } catch (err) {
       console.error('[ApiServerStore] Failed to regenerate token:', err)
     }
   }
 
   function listenStartupError() {
-    return window.apiServerApi.onStartupError((data) => {
+    return transport.onStartupError((data) => {
       status.value.error = data.error
       status.value.running = false
     })
@@ -148,7 +348,7 @@ export const useApiServerStore = defineStore('apiServer', () => {
 
   async function fetchDataSources() {
     try {
-      dataSources.value = await window.apiServerApi.getDataSources()
+      dataSources.value = await transport.getDataSources()
     } catch (err) {
       console.error('[ApiServerStore] Failed to fetch data sources:', err)
     }
@@ -162,7 +362,7 @@ export const useApiServerStore = defineStore('apiServer', () => {
     pullLimit?: number
   }) {
     try {
-      const ds = await window.apiServerApi.addDataSource(partial)
+      const ds = await transport.addDataSource(partial)
       dataSources.value.push(ds)
       return ds
     } catch (err) {
@@ -176,7 +376,7 @@ export const useApiServerStore = defineStore('apiServer', () => {
     updates: Partial<Pick<DataSource, 'name' | 'baseUrl' | 'token' | 'intervalMinutes' | 'pullLimit' | 'enabled'>>
   ) {
     try {
-      const ds = await window.apiServerApi.updateDataSource(id, updates)
+      const ds = await transport.updateDataSource(id, updates)
       if (ds) {
         const idx = dataSources.value.findIndex((s) => s.id === id)
         if (idx !== -1) dataSources.value[idx] = ds
@@ -190,7 +390,7 @@ export const useApiServerStore = defineStore('apiServer', () => {
 
   async function deleteDataSource(id: string) {
     try {
-      const ok = await window.apiServerApi.deleteDataSource(id)
+      const ok = await transport.deleteDataSource(id)
       if (ok) {
         dataSources.value = dataSources.value.filter((s) => s.id !== id)
       }
@@ -205,8 +405,16 @@ export const useApiServerStore = defineStore('apiServer', () => {
 
   async function addImportSessions(sourceId: string, sessions: Array<{ name: string; remoteSessionId: string }>) {
     try {
-      const added = await window.apiServerApi.addImportSessions(sourceId, sessions)
+      const added = await transport.addImportSessions(sourceId, sessions)
       await fetchDataSources()
+      if (added.length > 0) {
+        for (const s of added) pullingIds.value.add(s.id)
+        pullingIds.value = new Set(pullingIds.value)
+        pollDataSourceUpdates(
+          sourceId,
+          added.map((s) => s.id)
+        )
+      }
       return added
     } catch (err) {
       console.error('[ApiServerStore] Failed to add import sessions:', err)
@@ -214,10 +422,49 @@ export const useApiServerStore = defineStore('apiServer', () => {
     }
   }
 
-  async function removeImportSession(sourceId: string, sessionId: string) {
+  function pollDataSourceUpdates(sourceId: string, sessionIds: string[], maxAttempts = 24, intervalMs = 5000) {
+    let attempt = 0
+    const timer = setInterval(async () => {
+      attempt++
+      await Promise.all([fetchDataSources(), fetchSyncProgress()])
+      const ds = dataSources.value.find((s) => s.id === sourceId)
+      const pending = sessionIds.filter((id) => {
+        const sess = ds?.sessions.find((s) => s.id === id)
+        return sess && sess.lastStatus === 'idle'
+      })
+      if (pending.length === 0 || attempt >= maxAttempts) {
+        for (const id of sessionIds) {
+          pullingIds.value.delete(id)
+          syncProgress.value.delete(id)
+        }
+        pullingIds.value = new Set(pullingIds.value)
+        syncProgress.value = new Map(syncProgress.value)
+        clearInterval(timer)
+      }
+    }, intervalMs)
+  }
+
+  async function fetchSyncProgress() {
+    if (!isWebMode.value) return
     try {
-      const ok = await window.apiServerApi.removeImportSession(sourceId, sessionId)
-      if (ok) await fetchDataSources()
+      const list = await fetchWithAuth('/_web/automation/sync-progress').then((r) => r.json())
+      const map = new Map<string, { current: number; pages: number }>()
+      for (const item of list as Array<{ sessionId: string; current: number; pages: number; done: boolean }>) {
+        if (!item.done) map.set(item.sessionId, { current: item.current, pages: item.pages })
+      }
+      syncProgress.value = map
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function removeImportSession(sourceId: string, sessionId: string, deleteData?: boolean) {
+    try {
+      const ok = await transport.removeImportSession(sourceId, sessionId, deleteData)
+      if (ok) {
+        await fetchDataSources()
+        if (deleteData) useSessionStore().loadSessions()
+      }
       return ok
     } catch (err) {
       console.error('[ApiServerStore] Failed to remove import session:', err)
@@ -228,37 +475,89 @@ export const useApiServerStore = defineStore('apiServer', () => {
   // ==================== 同步 ====================
 
   async function triggerPull(sourceId: string, sessionId?: string) {
-    pullingId.value = sessionId || sourceId
+    const trackId = sessionId || sourceId
+    pullingIds.value.add(trackId)
+    pullingIds.value = new Set(pullingIds.value)
+    const progressTimer = startProgressPolling()
     try {
-      const result = await window.apiServerApi.triggerPull(sourceId, sessionId)
+      const result = await transport.triggerPull(sourceId, sessionId)
       await fetchDataSources()
+      await useSessionStore().loadSessions()
+      generateIndexForSource(sourceId, sessionId)
       return result
     } catch (err) {
       console.error('[ApiServerStore] Failed to trigger pull:', err)
       return { success: false, error: String(err) }
     } finally {
-      pullingId.value = null
+      clearInterval(progressTimer)
+      pullingIds.value.delete(trackId)
+      pullingIds.value = new Set(pullingIds.value)
+      syncProgress.value.delete(trackId)
+      syncProgress.value = new Map(syncProgress.value)
     }
   }
 
   async function triggerPullAll(sourceId: string) {
-    pullingId.value = sourceId
+    const ds = dataSources.value.find((s) => s.id === sourceId)
+    const ids = [sourceId, ...(ds?.sessions.map((s) => s.id) ?? [])]
+    for (const id of ids) pullingIds.value.add(id)
+    pullingIds.value = new Set(pullingIds.value)
+    const progressTimer = startProgressPolling()
     try {
-      const result = await window.apiServerApi.triggerPullAll(sourceId)
+      const result = await transport.triggerPullAll(sourceId)
       await fetchDataSources()
+      await useSessionStore().loadSessions()
+      generateIndexForSource(sourceId)
       return result
     } catch (err) {
       console.error('[ApiServerStore] Failed to trigger pull all:', err)
       return { success: false, error: String(err) }
     } finally {
-      pullingId.value = null
+      clearInterval(progressTimer)
+      for (const id of ids) {
+        pullingIds.value.delete(id)
+        syncProgress.value.delete(id)
+      }
+      pullingIds.value = new Set(pullingIds.value)
+      syncProgress.value = new Map(syncProgress.value)
     }
   }
 
+  function startProgressPolling(): ReturnType<typeof setInterval> {
+    return setInterval(fetchSyncProgress, 3000)
+  }
+
   function listenPullResult() {
-    return window.apiServerApi.onPullResult(() => {
-      fetchDataSources()
+    return transport.onPullResult(async () => {
+      await fetchDataSources()
+      await useSessionStore().loadSessions()
+      generateIndexForAllSources()
     })
+  }
+
+  function generateIndexForSource(sourceId: string, sessionId?: string) {
+    const ds = dataSources.value.find((s) => s.id === sourceId)
+    if (!ds) return
+    const targets = sessionId
+      ? ds.sessions.filter((s) => s.id === sessionId && s.targetSessionId)
+      : ds.sessions.filter((s) => s.targetSessionId)
+    const indexService = useSessionIndexService()
+    const threshold = getSessionGapThreshold()
+    for (const sess of targets) {
+      indexService.generateIncremental(sess.targetSessionId, threshold).catch(() => {})
+    }
+  }
+
+  function generateIndexForAllSources() {
+    const indexService = useSessionIndexService()
+    const threshold = getSessionGapThreshold()
+    for (const ds of dataSources.value) {
+      for (const sess of ds.sessions) {
+        if (sess.targetSessionId) {
+          indexService.generateIncremental(sess.targetSessionId, threshold).catch(() => {})
+        }
+      }
+    }
   }
 
   async function fetchRemoteSessions(
@@ -266,7 +565,7 @@ export const useApiServerStore = defineStore('apiServer', () => {
     token?: string,
     query?: { keyword?: string; limit?: number; cursor?: string }
   ): Promise<RemoteSessionDiscoveryResult> {
-    return window.apiServerApi.fetchRemoteSessions(baseUrl, token, query)
+    return transport.fetchRemoteSessions(baseUrl, token, query)
   }
 
   return {
@@ -274,10 +573,13 @@ export const useApiServerStore = defineStore('apiServer', () => {
     status,
     loading,
     dataSources,
-    pullingId,
+    pullingIds,
+    syncProgress,
+    available,
     isRunning,
     hasError,
     isPortInUse,
+    isWebMode,
     fetchConfig,
     fetchStatus,
     refresh,

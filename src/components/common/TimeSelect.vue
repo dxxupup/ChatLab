@@ -3,12 +3,15 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import dayjs from 'dayjs'
 import { formatDateRange } from '@/utils'
+import { useDataService } from '@/services'
 import UITabs from '@/components/UI/Tabs.vue'
 import DatePicker from '@/components/UI/DatePicker.vue'
+import { buildTimeSelectSourceKey, normalizeAllowedModes, normalizeAllowedRecentDays } from './timeSelectOptions'
 
 // ==================== 类型定义（导出供父组件使用） ====================
 
 export type TimeSelectMode = 'recent' | 'quarter' | 'year' | 'custom'
+export type TimeSelectSize = 'sm' | 'md'
 
 /** 组件内部状态快照，用于父组件 URL 序列化 */
 export interface TimeSelectState {
@@ -33,18 +36,30 @@ export interface TimeRangeValue {
   state: TimeSelectState
 }
 
+export interface TimeSelectRangeSource {
+  availableYears: number[]
+  fullRange: { start: number; end: number } | null
+}
+
 // ==================== Props & Emits ====================
 
 interface Props {
-  sessionId: string | undefined
+  sessionId?: string
   modelValue: TimeRangeValue | null
   visible?: boolean
   /** 初始状态（通常从 URL query 构建） */
   initialState?: Partial<TimeSelectState>
+  /** 全局页面可直接提供时间边界，避免绑定到单个 session。 */
+  rangeSource?: TimeSelectRangeSource
+  allowedModes?: TimeSelectMode[]
+  allowedRecentDays?: number[]
+  /** 复合筛选器尺寸；sm 与页面内紧凑筛选器保持一致。 */
+  size?: TimeSelectSize
 }
 
 const props = withDefaults(defineProps<Props>(), {
   visible: true,
+  size: 'md',
 })
 
 const emit = defineEmits<{
@@ -60,6 +75,10 @@ const { t } = useI18n()
 const isLoaded = ref(false)
 const availableYears = ref<number[]>([])
 const fullTimeRange = ref<{ start: number; end: number } | null>(null)
+const allowedModes = computed(() => normalizeAllowedModes(props.allowedModes))
+const allowedRecentDays = computed(() => normalizeAllowedRecentDays(props.allowedRecentDays))
+const secondaryControlSize = computed(() => (props.size === 'sm' ? 'xs' : 'sm'))
+const labelClass = computed(() => (props.size === 'sm' ? 'text-xs' : 'text-sm'))
 
 // 模式
 const mode = ref<TimeSelectMode>('recent')
@@ -108,19 +127,24 @@ function getYearRange(year: number): { startTs: number; endTs: number } {
 
 // ==================== 选项配置 ====================
 
-const modeOptions = computed(() => [
-  { label: t('common.timeSelect.mode.recent'), value: 'recent' as const },
-  { label: t('common.timeSelect.mode.quarter'), value: 'quarter' as const },
-  { label: t('common.timeSelect.mode.year'), value: 'year' as const },
-  { label: t('common.timeSelect.mode.custom'), value: 'custom' as const },
-])
+const modeOptions = computed(() =>
+  [
+    { label: t('common.timeSelect.mode.recent'), value: 'recent' as const },
+    { label: t('common.timeSelect.mode.quarter'), value: 'quarter' as const },
+    { label: t('common.timeSelect.mode.year'), value: 'year' as const },
+    { label: t('common.timeSelect.mode.custom'), value: 'custom' as const },
+  ].filter((option) => allowedModes.value.includes(option.value))
+)
 
-const recentOptions = computed(() => [
-  { label: t('common.timeSelect.recent.oneYear'), value: 365 },
-  { label: t('common.timeSelect.recent.twoYears'), value: 730 },
-  { label: t('common.timeSelect.recent.fiveYears'), value: 1825 },
-  { label: t('common.timeSelect.recent.all'), value: 0 },
-])
+const recentOptions = computed(() => {
+  const labels = new Map([
+    [365, t('common.timeSelect.recent.oneYear')],
+    [730, t('common.timeSelect.recent.twoYears')],
+    [1825, t('common.timeSelect.recent.fiveYears')],
+    [0, t('common.timeSelect.recent.all')],
+  ])
+  return allowedRecentDays.value.map((value) => ({ label: labels.get(value) ?? String(value), value }))
+})
 
 // ==================== 导航边界 ====================
 
@@ -188,7 +212,7 @@ function getRecentDisplayLabel(days: number): string {
 }
 
 function normalizeRecentDays(days: number): number {
-  return [365, 730, 1825, 0].includes(days) ? days : 365
+  return allowedRecentDays.value.includes(days) ? days : (allowedRecentDays.value[0] ?? 365)
 }
 
 function buildValue(): TimeRangeValue | null {
@@ -368,7 +392,7 @@ const customEndModel = computed({
 // ==================== 数据加载 ====================
 
 async function loadData() {
-  if (!props.sessionId) {
+  if (!props.rangeSource && !props.sessionId) {
     availableYears.value = []
     fullTimeRange.value = null
     emit('update:fullRange', null)
@@ -378,10 +402,18 @@ async function loadData() {
   }
 
   try {
-    const [years, range] = await Promise.all([
-      window.chatApi.getAvailableYears(props.sessionId),
-      window.chatApi.getTimeRange(props.sessionId),
-    ])
+    let years: number[]
+    let range: { start: number; end: number } | null
+    if (props.rangeSource) {
+      years = props.rangeSource.availableYears
+      range = props.rangeSource.fullRange
+    } else {
+      const adapter = useDataService()
+      ;[years, range] = await Promise.all([
+        adapter.getAvailableYears(props.sessionId!),
+        adapter.getTimeRange(props.sessionId!),
+      ])
+    }
     availableYears.value = years
     fullTimeRange.value = range
     emit('update:fullRange', range)
@@ -389,7 +421,8 @@ async function loadData() {
 
     // 从 initialState 或默认值初始化
     const init = props.initialState
-    const initMode = init?.mode ?? 'recent'
+    const requestedMode = init?.mode ?? allowedModes.value[0] ?? 'recent'
+    const initMode = allowedModes.value.includes(requestedMode) ? requestedMode : (allowedModes.value[0] ?? 'recent')
     mode.value = initMode
 
     isInitializing.value = true
@@ -445,7 +478,7 @@ async function loadData() {
 
 onMounted(() => loadData())
 watch(
-  () => props.sessionId,
+  () => buildTimeSelectSourceKey(props.sessionId, props.rangeSource),
   () => {
     isLoaded.value = false
     loadData()
@@ -456,14 +489,23 @@ watch(
 <template>
   <div v-if="isLoaded" class="flex items-center gap-2" :class="{ invisible: !visible }">
     <!-- 模式选择器 -->
-    <USelect v-model="modeModel" :items="modeOptions" size="md" class="w-28 shrink-0" />
+    <USelect
+      v-model="modeModel"
+      :items="modeOptions"
+      value-key="value"
+      :size="secondaryControlSize"
+      color="neutral"
+      variant="soft"
+      :ui="{ item: 'py-1.5' }"
+      class="h-8 w-[88px] shrink-0 rounded-lg bg-elevated focus-visible:ring-1 focus-visible:ring-gray-300/60 dark:focus-visible:ring-white/15"
+    />
 
     <!-- 最近模式：UITabs 选择时间段 -->
     <UITabs
       v-if="mode === 'recent'"
       v-model="recentPeriodModel"
       :items="recentOptions"
-      size="sm"
+      :size="secondaryControlSize"
       class="min-w-0 shrink"
     />
 
@@ -471,18 +513,18 @@ watch(
     <div v-else-if="mode === 'quarter'" class="flex items-center">
       <UButton
         icon="i-heroicons-chevron-left"
-        size="sm"
+        :size="secondaryControlSize"
         variant="ghost"
         color="neutral"
         :disabled="!canPrevQuarter"
         @click="navigateQuarter(-1)"
       />
-      <span class="whitespace-nowrap px-0.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+      <span class="whitespace-nowrap px-0.5 font-medium text-gray-700 dark:text-gray-300" :class="labelClass">
         {{ quarterDisplayLabel }}
       </span>
       <UButton
         icon="i-heroicons-chevron-right"
-        size="sm"
+        :size="secondaryControlSize"
         variant="ghost"
         color="neutral"
         :disabled="!canNextQuarter"
@@ -494,18 +536,18 @@ watch(
     <div v-else-if="mode === 'year'" class="flex items-center">
       <UButton
         icon="i-heroicons-chevron-left"
-        size="sm"
+        :size="secondaryControlSize"
         variant="ghost"
         color="neutral"
         :disabled="!canPrevYear"
         @click="navigateYear(-1)"
       />
-      <span class="whitespace-nowrap px-0.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+      <span class="whitespace-nowrap px-0.5 font-medium text-gray-700 dark:text-gray-300" :class="labelClass">
         {{ yearDisplayLabel }}
       </span>
       <UButton
         icon="i-heroicons-chevron-right"
-        size="sm"
+        :size="secondaryControlSize"
         variant="ghost"
         color="neutral"
         :disabled="!canNextYear"
@@ -515,9 +557,9 @@ watch(
 
     <!-- 自定义模式：双日期选择器 -->
     <div v-else-if="mode === 'custom'" class="flex items-center gap-1">
-      <DatePicker v-model="customStartModel" width-class="w-28" :clearable="false" />
+      <DatePicker v-model="customStartModel" width-class="w-28" :clearable="false" :size="size" />
       <span class="text-xs text-gray-400">-</span>
-      <DatePicker v-model="customEndModel" width-class="w-28" :clearable="false" />
+      <DatePicker v-model="customEndModel" width-class="w-28" :clearable="false" :size="size" />
     </div>
   </div>
 </template>

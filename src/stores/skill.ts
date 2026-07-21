@@ -6,8 +6,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useAssistantStore } from './assistant'
+import { usePlatformService, useSkillService } from '@/services'
+import { CHART_CAPABILITY_SKILL_ID } from '@openchatlab/core'
 
-const CLOUD_MARKET_BASE_URL = 'https://chatlab.fun'
+import { CHATLAB_SITE_BASE } from '@/utils/chatlabSiteLocale'
+const CLOUD_MARKET_BASE_URL = CHATLAB_SITE_BASE
 const LOCALE_PATH_MAP: Record<string, string> = { 'zh-CN': 'cn', 'zh-TW': 'cn', 'en-US': 'en', 'ja-JP': 'ja' }
 
 export interface SkillSummary {
@@ -61,10 +64,28 @@ export const useSkillStore = defineStore('skill', () => {
   const currentChatType = ref<'group' | 'private'>('group')
   const currentLocale = ref<string>('zh-CN')
 
+  function getChartCapabilitySkillSummary(): SkillSummary {
+    const isZh = currentLocale.value.startsWith('zh')
+    return {
+      id: CHART_CAPABILITY_SKILL_ID,
+      name: isZh ? '绘图助手' : 'Chart Assistant',
+      description: isZh ? '按本轮问题生成灵活的聊天数据图表' : 'Generate flexible charts for this chat question',
+      tags: [isZh ? '图表' : 'chart'],
+      chatScope: 'all',
+      tools: ['render_chart', 'get_schema'],
+      builtinId: CHART_CAPABILITY_SKILL_ID,
+    }
+  }
+
   const activeSkill = computed(() => {
     if (!activeSkillId.value) return null
+    if (activeSkillId.value === CHART_CAPABILITY_SKILL_ID) {
+      return getChartCapabilitySkillSummary()
+    }
     return skills.value.find((s) => s.id === activeSkillId.value) ?? null
   })
+
+  const chartCapabilitySkill = computed(() => getChartCapabilitySkillSummary())
 
   const scopedSkills = computed(() => {
     return skills.value.filter((s) => s.chatScope === 'all' || s.chatScope === currentChatType.value)
@@ -73,9 +94,10 @@ export const useSkillStore = defineStore('skill', () => {
   const compatibleSkills = computed(() => {
     const assistantStore = useAssistantStore()
     const config = assistantStore.selectedAssistant
-    if (!config) return scopedSkills.value
+    const baseSkills = [chartCapabilitySkill.value, ...scopedSkills.value]
+    if (!config) return baseSkills
 
-    return scopedSkills.value.filter((s) => {
+    return baseSkills.filter((s) => {
       if (!s.tools.length) return true
       return true
     })
@@ -107,7 +129,7 @@ export const useSkillStore = defineStore('skill', () => {
 
   async function loadSkills(): Promise<void> {
     try {
-      skills.value = await window.skillApi.getAll()
+      skills.value = await useSkillService().getAll()
       isLoaded.value = true
     } catch (error) {
       console.error('[SkillStore] Failed to load skills:', error)
@@ -117,7 +139,7 @@ export const useSkillStore = defineStore('skill', () => {
   /** @deprecated 本地内置目录已清空，保留兼容 */
   async function loadBuiltinCatalog(): Promise<void> {
     try {
-      builtinCatalog.value = await window.skillApi.getBuiltinCatalog()
+      builtinCatalog.value = await useSkillService().getBuiltinCatalog()
     } catch (error) {
       console.error('[SkillStore] Failed to load builtin catalog:', error)
     }
@@ -133,7 +155,7 @@ export const useSkillStore = defineStore('skill', () => {
     cloudError.value = null
 
     try {
-      const result = await window.api.app.fetchRemoteConfig(url)
+      const result = await usePlatformService().fetchRemoteConfig(url)
       if (!result.success || !result.data) {
         cloudError.value = result.error || 'Failed to fetch cloud catalog'
         cloudCatalog.value = []
@@ -160,12 +182,12 @@ export const useSkillStore = defineStore('skill', () => {
     const mdUrl = `${CLOUD_MARKET_BASE_URL}${item.path}`
 
     try {
-      const mdResult = await window.api.app.fetchRemoteConfig(mdUrl)
+      const mdResult = await usePlatformService().fetchRemoteConfig(mdUrl)
       if (!mdResult.success || typeof mdResult.data !== 'string') {
         return { success: false, error: mdResult.error || 'Failed to fetch skill content' }
       }
 
-      const result = await window.skillApi.importFromMd(mdResult.data)
+      const result = await useSkillService().importFromMd(mdResult.data)
       if (result.success) {
         await loadSkills()
       }
@@ -186,8 +208,16 @@ export const useSkillStore = defineStore('skill', () => {
   }
 
   async function getSkillConfig(id: string): Promise<SkillConfigFull | null> {
+    if (id === CHART_CAPABILITY_SKILL_ID) {
+      const skill = getChartCapabilitySkillSummary()
+      return {
+        ...skill,
+        prompt: '',
+        builtinId: CHART_CAPABILITY_SKILL_ID,
+      }
+    }
     try {
-      return await window.skillApi.getConfig(id)
+      return await useSkillService().getConfig(id)
     } catch (error) {
       console.error('[SkillStore] Failed to get skill config:', error)
       return null
@@ -196,10 +226,8 @@ export const useSkillStore = defineStore('skill', () => {
 
   async function updateSkill(id: string, rawMd: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const result = await window.skillApi.update(id, rawMd)
-      if (result.success) {
-        await loadSkills()
-      }
+      const result = await useSkillService().update(id, rawMd)
+      if (result.success) await loadSkills()
       return result
     } catch (error) {
       return { success: false, error: String(error) }
@@ -208,10 +236,8 @@ export const useSkillStore = defineStore('skill', () => {
 
   async function createSkill(rawMd: string): Promise<{ success: boolean; id?: string; error?: string }> {
     try {
-      const result = await window.skillApi.create(rawMd)
-      if (result.success) {
-        await loadSkills()
-      }
+      const result = await useSkillService().create(rawMd)
+      if (result.success) await loadSkills()
       return result
     } catch (error) {
       return { success: false, error: String(error) }
@@ -220,11 +246,9 @@ export const useSkillStore = defineStore('skill', () => {
 
   async function deleteSkill(id: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const result = await window.skillApi.delete(id)
+      const result = await useSkillService().delete(id)
       if (result.success) {
-        if (activeSkillId.value === id) {
-          activeSkillId.value = null
-        }
+        if (activeSkillId.value === id) activeSkillId.value = null
         await loadSkills()
       }
       return result
@@ -235,7 +259,7 @@ export const useSkillStore = defineStore('skill', () => {
 
   async function importSkill(builtinId: string): Promise<{ success: boolean; id?: string; error?: string }> {
     try {
-      const result = await window.skillApi.importSkill(builtinId)
+      const result = await useSkillService().importBuiltin(builtinId)
       if (result.success) {
         await loadSkills()
         await loadBuiltinCatalog()
@@ -248,7 +272,7 @@ export const useSkillStore = defineStore('skill', () => {
 
   async function reimportSkill(id: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const result = await window.skillApi.reimportSkill(id)
+      const result = await useSkillService().reimport(id)
       if (result.success) {
         await loadSkills()
         await loadBuiltinCatalog()

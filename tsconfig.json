@@ -1,12 +1,11 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@electron/*": ["electron/*"],
-      "@openchatlab/*": ["packages/*"]
+      "@/*": ["./src/*"],
+      "@electron/*": ["./apps/desktop/*"],
+      "@openchatlab/*": ["./packages/*"]
     }
   },
   "files": [],
-  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.web.json" }]
+  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./apps/desktop/tsconfig.node.json" }]
 }

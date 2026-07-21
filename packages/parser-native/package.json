@@ -1,0 +1,20 @@
+{
+  "name": "@openchatlab/parser-native",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ChatLab Rust 解析内核（N-API 与浏览器 WASM）",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "binaryName": "chatlab-parser-native"
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "test": "cargo test"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0"
+  }
+}

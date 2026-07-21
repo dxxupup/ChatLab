@@ -1,47 +1,55 @@
 {
   "groupChat": {
-    "title": "Group Chat Analysis",
     "loading": "Loading analysis data...",
-    "loadError": "Unable to load session data",
-    "description": "You've exchanged {messageCount} messages between {startDate} and {endDate}"
+    "loadError": "Unable to load session data"
   },
   "privateChat": {
-    "title": "Private Chat Analysis",
     "loading": "Loading analysis data...",
-    "loadError": "Unable to load session data",
-    "description": "You've exchanged {messageCount} messages between {startDate} and {endDate}"
+    "loadError": "Unable to load session data"
   },
   "tabs": {
     "overview": "Overview",
     "view": "Insights",
     "ranking": "Rankings",
-    "groupQuotes": "Quotes",
-    "quotes": "Quotes",
-    "members": "Members",
-    "member": "Members",
-    "ai": "AI Lab",
     "aiChat": "AI Chat",
     "memory": "Memory",
     "lab": "Lab",
-    "sqlLab": "SQL Lab"
+    "debug": "Debug"
+  },
+  "debug": {
+    "sqlTables": "SQL Tables",
+    "basicTools": "Basic Tools",
+    "tableBrowser": {
+      "chatDb": "Chat DB",
+      "aiDb": "AI Chat DB",
+      "rowCount": "{count} rows",
+      "page": "Page {current} / {total}",
+      "refresh": "Refresh",
+      "noData": "No data",
+      "editRow": "Edit",
+      "deleteRow": "Delete Row",
+      "confirmDelete": "Are you sure you want to delete this row?",
+      "allConversations": "All Conversations",
+      "copyCell": "Copy Selected",
+      "copyRow": "Copy Row (JSON)",
+      "clearDebugContext": "Clear Debug Context",
+      "confirmClearDebug": "Clear debug_context for all messages? This cannot be undone."
+    }
   },
   "memory": {
     "comingSoon": "Memory feature coming soon, stay tuned"
   },
-  "yearFilter": {
-    "allTime": "All Time",
-    "year": "{year}"
-  },
   "tooltip": {
     "viewChatRecord": "View Chat History",
-    "sessionIndex": "Session Index",
+    "semanticIndex": "Semantic Index",
     "incrementalImport": "Import More",
-    "memberManagement": "Manage Member"
+    "memberManagement": "Manage Member",
+    "more": "More"
   },
   "incremental": {
     "title": "Append Chat Records",
     "description": "Select chat record file to append to \"{name}\". Duplicates will be automatically removed.",
-    "selectFile": "Select chat record file",
+    "homeAutoImportHint": "The home page now supports automatic incremental imports. When you have new chat records, simply drag them onto the home page.",
     "dropHint": "Click to select or drop file here",
     "analyzing": "Analyzing file...",
     "totalInFile": "Total in file",
@@ -56,20 +64,20 @@
   },
   "subTabs": {
     "view": {
-      "message": "Messages",
+      "typeAnalysis": "Types",
+      "timeAnalysis": "Time",
       "topic": "Topics",
-      "interaction": "Interactions",
       "groupRelationships": "Relationships",
-      "ranking": "Rankings",
       "relationship": "Relationship",
       "languagePreference": "Language Preference"
     },
+    "ranking": {
+      "overall": "Overall",
+      "keyword": "Keywords"
+    },
     "quotes": {
-      "wordcloud": "Topics",
       "hotRepeat": "Hot Repeats",
-      "catchphrase": "Catchphrases",
-      "keywordAnalysis": "Keyword Analysis",
-      "languagePreference": "Language"
+      "catchphrase": "Catchphrases"
     },
     "groupRelationships": {
       "mentionGraph": "Mention Graph",
@@ -77,18 +85,14 @@
       "proximity": "Proximity"
     },
     "member": {
-      "memberList": "Member List",
-      "relationships": "Relationships",
-      "cluster": "Interaction",
       "nicknameHistory": "Nickname History"
     }
   },
   "overview": {
     "messageTypeDistribution": "Message Type Distribution",
     "memberDistribution": "Member Activity Distribution",
+    "memberRanking": "Member Ranking",
     "others": "Others",
-    "messageRatio": "Message Ratio",
-    "messageUnit": "messages",
     "memberComparison": "Member Comparison",
     "statCards": {
       "dailyAvgMessages": "Daily Avg Messages",
@@ -102,8 +106,6 @@
       "weekendActivity": "Weekend Activity",
       "weekendRatio": "Weekend message ratio",
       "mostActiveDate": "Most Active Date",
-      "activeDays": "Active Days",
-      "slashDays": "/ {count} days",
       "consecutiveStreak": "Streak",
       "daysStreak": "{count} days",
       "longestStreak": "Longest active streak",
@@ -118,7 +120,6 @@
     "identity": {
       "privateChat": "Private",
       "groupChat": "Group",
-      "analysisReport": "Analysis Report",
       "totalMessages": "Total Messages",
       "durationDays": "Duration Days",
       "activeDays": "Active Days",
@@ -127,26 +128,15 @@
     "tools": "Quick Tools"
   },
   "toolsPanel": {
-    "expand": "Expand tools panel",
-    "collapse": "Collapse tools panel",
-    "lock": "Lock panel",
-    "unlock": "Unlock panel",
     "miniMode": "Mini mode",
     "exitMini": "Exit mini mode"
   },
   "messageExport": {
-    "title": "Export Records"
+    "title": "Export Records",
+    "selectOutputDir": "Select Output Directory",
+    "format": "Format"
   },
   "filter": {
-    "title": "Filter Analysis",
-    "conditionMode": "Condition Filter",
-    "sessionMode": "Session Filter",
-    "history": "History",
-    "execute": "Execute Filter",
-    "export": "Export Feed Pack",
-    "keywords": "Keywords",
-    "keywordsHint": "Multiple keywords supported, OR logic",
-    "keywordPlaceholder": "Enter keyword, press Enter to add",
     "timeRange": "Time Range",
     "allTime": "All Time",
     "today": "Today",
@@ -155,30 +145,6 @@
     "last3Months": "Last 3 Months",
     "lastYear": "Last Year",
     "customTime": "Custom",
-    "senders": "Senders",
-    "sendersHint": "Optional, leave empty for all",
-    "searchMember": "Search member...",
-    "noMembers": "No members",
-    "selectedCount": "{count} selected",
-    "contextSize": "Context Expansion",
-    "messages": "messages",
-    "searchSession": "Search date...",
-    "selectedSessions": "{count} sessions selected",
-    "noSessions": "No session index",
-    "filtering": "Filtering...",
-    "emptyHint": "Set filter conditions and click execute",
-    "noResults": "No matching messages found",
-    "blockTitle": "Context Block {index}",
-    "stats": {
-      "blocks": "Blocks",
-      "messages": "Messages",
-      "hits": "Hits",
-      "chars": "Characters"
-    },
-    "historyTitle": "Filter History",
-    "noHistory": "No history records",
-    "loadMore": "Load More",
-    "allLoaded": "All loaded",
     "exportSuccess": "Export successful",
     "exportFailed": "Export failed",
     "exportPreparing": "Preparing export..."

@@ -33,6 +33,7 @@ const {
   showAddModelDialog,
   newModelName,
   newModelId,
+  newModelContextWindow,
   formData,
   validationResult,
   validationMessage,
@@ -44,7 +45,9 @@ const {
   isPresetMode,
   modelTabItems,
   selectedModelIsCustom,
+  selectedModelContextWindow,
   canSave,
+  canReuseStoredKey,
   apiFormatItems,
   modalTitle,
   resolvedApiUrl,
@@ -54,10 +57,15 @@ const {
   showRemoteModelBrowser,
   addedModelIds,
   canFetchModels,
+  showEditModelDialog,
+  editModelContextWindow,
+  editModelName,
   selectProvider,
   onConnectionModeChange,
   openAddModelDialog,
   confirmAddModel,
+  openEditModelDialog,
+  confirmEditModel,
   deleteCustomModel,
   validateKey,
   saveConfig,
@@ -112,7 +120,7 @@ function closeModal() {
                     :class="[
                       formData.provider === p.id
                         ? 'border-transparent bg-primary-500 text-white hover:bg-primary-600 dark:bg-primary-500 dark:text-white dark:hover:bg-primary-400'
-                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:border-gray-600',
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 dark:border-gray-700 dark:bg-page-dark dark:text-gray-400 dark:hover:border-gray-600',
                     ]"
                     @click="selectProvider(p.id)"
                   >
@@ -126,7 +134,7 @@ function closeModal() {
                     :class="[
                       formData.provider === p.id
                         ? 'border-transparent bg-primary-500 text-white hover:bg-primary-600 dark:bg-primary-500 dark:text-white dark:hover:bg-primary-400'
-                        : 'border-dashed border-gray-300 bg-white text-gray-500 hover:border-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400',
+                        : 'border-dashed border-gray-300 bg-white text-gray-500 hover:border-gray-400 dark:border-gray-600 dark:bg-page-dark dark:text-gray-400',
                     ]"
                     @click="selectProvider(p.id)"
                   >
@@ -165,9 +173,13 @@ function closeModal() {
               <!-- API Key -->
               <ApiKeyInput
                 v-model="formData.apiKey"
-                :placeholder="t('settings.aiConfig.modal.apiKeyPlaceholder')"
+                :placeholder="
+                  mode === 'edit' && config?.apiKeySet
+                    ? t('settings.aiConfig.modal.apiKeyPlaceholderEdit')
+                    : t('settings.aiConfig.modal.apiKeyPlaceholder')
+                "
                 :validate-loading="isValidating"
-                :validate-disabled="!formData.apiKey"
+                :validate-disabled="!formData.apiKey && !canReuseStoredKey"
                 :validate-text="t('settings.aiConfig.modal.validate')"
                 :validation-result="validationResult"
                 :validation-message="validationMessage"
@@ -210,6 +222,21 @@ function closeModal() {
                 <UITabs v-if="modelTabItems.length > 0" v-model="formData.model" :items="modelTabItems" size="xs" />
                 <p v-if="formData.model" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                   {{ t('settings.aiConfig.modal.customModelId') }}: {{ formData.model }}
+                  <span v-if="selectedModelContextWindow" class="ml-2">
+                    · {{ t('settings.aiConfig.modal.contextWindow') }}:
+                    {{
+                      selectedModelContextWindow >= 1000000
+                        ? (selectedModelContextWindow / 1048576).toFixed(1) + 'M'
+                        : Math.round(selectedModelContextWindow / 1024) + 'K'
+                    }}
+                  </span>
+                </p>
+                <p
+                  v-if="formData.model && !selectedModelContextWindow"
+                  class="mt-1 flex items-center gap-1 text-xs text-red-500 dark:text-red-400"
+                >
+                  <UIcon name="i-heroicons-exclamation-triangle" class="h-3.5 w-3.5 shrink-0" />
+                  {{ t('settings.aiConfig.modal.contextWindowMissing') }}
                 </p>
 
                 <div class="mt-2 flex items-center gap-2">
@@ -228,6 +255,14 @@ function closeModal() {
                   >
                     <UIcon name="i-heroicons-plus" class="h-3.5 w-3.5" />
                     {{ t('settings.aiConfig.modal.addCustomModel') }}
+                  </button>
+                  <button
+                    v-if="formData.model"
+                    class="flex items-center gap-1 rounded-md border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-500 transition-colors hover:border-primary-400 hover:text-primary-500 dark:border-gray-600 dark:text-gray-400 dark:hover:border-primary-500 dark:hover:text-primary-400"
+                    @click="openEditModelDialog"
+                  >
+                    <UIcon name="i-heroicons-pencil-square" class="h-3.5 w-3.5" />
+                    {{ t('settings.aiConfig.modal.editModel') }}
                   </button>
                   <button
                     v-if="selectedModelIsCustom"
@@ -283,12 +318,27 @@ function closeModal() {
                 </label>
 
                 <UITabs v-if="modelTabItems.length > 0" v-model="formData.model" :items="modelTabItems" size="xs" />
-                <p v-else class="flex items-center gap-1 text-xs text-amber-500 dark:text-amber-400">
+                <p v-else class="flex items-center gap-1 text-xs text-red-500 dark:text-red-400">
                   <UIcon name="i-heroicons-exclamation-triangle" class="h-3.5 w-3.5 shrink-0" />
                   {{ t('settings.aiConfig.modal.modelRequired') }}
                 </p>
                 <p v-if="formData.model" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                   {{ t('settings.aiConfig.modal.customModelId') }}: {{ formData.model }}
+                  <span v-if="selectedModelContextWindow" class="ml-2">
+                    · {{ t('settings.aiConfig.modal.contextWindow') }}:
+                    {{
+                      selectedModelContextWindow >= 1000000
+                        ? (selectedModelContextWindow / 1048576).toFixed(1) + 'M'
+                        : Math.round(selectedModelContextWindow / 1024) + 'K'
+                    }}
+                  </span>
+                </p>
+                <p
+                  v-if="formData.model && !selectedModelContextWindow"
+                  class="mt-1 flex items-center gap-1 text-xs text-red-500 dark:text-red-400"
+                >
+                  <UIcon name="i-heroicons-exclamation-triangle" class="h-3.5 w-3.5 shrink-0" />
+                  {{ t('settings.aiConfig.modal.contextWindowMissing') }}
                 </p>
 
                 <div class="mt-2 flex items-center gap-2">
@@ -307,6 +357,14 @@ function closeModal() {
                   >
                     <UIcon name="i-heroicons-plus" class="h-3.5 w-3.5" />
                     {{ t('settings.aiConfig.modal.addCustomModel') }}
+                  </button>
+                  <button
+                    v-if="formData.model"
+                    class="flex items-center gap-1 rounded-md border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-500 transition-colors hover:border-primary-400 hover:text-primary-500 dark:border-gray-600 dark:text-gray-400 dark:hover:border-primary-500 dark:hover:text-primary-400"
+                    @click="openEditModelDialog"
+                  >
+                    <UIcon name="i-heroicons-pencil-square" class="h-3.5 w-3.5" />
+                    {{ t('settings.aiConfig.modal.editModel') }}
                   </button>
                   <button
                     v-if="selectedModelIsCustom"
@@ -349,9 +407,13 @@ function closeModal() {
               <!-- API Key -->
               <ApiKeyInput
                 v-model="formData.apiKey"
-                :placeholder="t('settings.aiConfig.modal.apiKeyPlaceholder')"
+                :placeholder="
+                  mode === 'edit' && config?.apiKeySet
+                    ? t('settings.aiConfig.modal.apiKeyPlaceholderEdit')
+                    : t('settings.aiConfig.modal.apiKeyPlaceholder')
+                "
                 :validate-loading="isValidating"
-                :validate-disabled="!formData.apiKey || !formData.baseUrl"
+                :validate-disabled="(!formData.apiKey && !canReuseStoredKey) || !formData.baseUrl"
                 :validate-text="t('settings.aiConfig.modal.validate')"
                 :validation-result="validationResult"
                 :validation-message="validationMessage"
@@ -386,12 +448,27 @@ function closeModal() {
                 </label>
 
                 <UITabs v-if="modelTabItems.length > 0" v-model="formData.model" :items="modelTabItems" size="xs" />
-                <p v-else class="flex items-center gap-1 text-xs text-amber-500 dark:text-amber-400">
+                <p v-else class="flex items-center gap-1 text-xs text-red-500 dark:text-red-400">
                   <UIcon name="i-heroicons-exclamation-triangle" class="h-3.5 w-3.5 shrink-0" />
                   {{ t('settings.aiConfig.modal.modelRequired') }}
                 </p>
                 <p v-if="formData.model" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                   {{ t('settings.aiConfig.modal.customModelId') }}: {{ formData.model }}
+                  <span v-if="selectedModelContextWindow" class="ml-2">
+                    · {{ t('settings.aiConfig.modal.contextWindow') }}:
+                    {{
+                      selectedModelContextWindow >= 1000000
+                        ? (selectedModelContextWindow / 1048576).toFixed(1) + 'M'
+                        : Math.round(selectedModelContextWindow / 1024) + 'K'
+                    }}
+                  </span>
+                </p>
+                <p
+                  v-if="formData.model && !selectedModelContextWindow"
+                  class="mt-1 flex items-center gap-1 text-xs text-red-500 dark:text-red-400"
+                >
+                  <UIcon name="i-heroicons-exclamation-triangle" class="h-3.5 w-3.5 shrink-0" />
+                  {{ t('settings.aiConfig.modal.contextWindowMissing') }}
                 </p>
 
                 <div class="mt-2 flex items-center gap-2">
@@ -410,6 +487,14 @@ function closeModal() {
                   >
                     <UIcon name="i-heroicons-plus" class="h-3.5 w-3.5" />
                     {{ t('settings.aiConfig.modal.addCustomModel') }}
+                  </button>
+                  <button
+                    v-if="formData.model"
+                    class="flex items-center gap-1 rounded-md border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-500 transition-colors hover:border-primary-400 hover:text-primary-500 dark:border-gray-600 dark:text-gray-400 dark:hover:border-primary-500 dark:hover:text-primary-400"
+                    @click="openEditModelDialog"
+                  >
+                    <UIcon name="i-heroicons-pencil-square" class="h-3.5 w-3.5" />
+                    {{ t('settings.aiConfig.modal.editModel') }}
                   </button>
                   <button
                     v-if="selectedModelIsCustom"
@@ -447,36 +532,6 @@ function closeModal() {
                       : t('settings.aiConfig.modal.configNamePlaceholderCustom')
                   "
                 />
-              </div>
-            </template>
-
-            <!-- ===== 通用：推理模型选项 ===== -->
-            <template v-if="formData.provider || !isPresetMode">
-              <div class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
-                <div>
-                  <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {{ t('settings.aiConfig.modal.isReasoningModel') }}
-                  </p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('settings.aiConfig.modal.isReasoningModelDesc') }}
-                  </p>
-                </div>
-                <USwitch v-model="formData.isReasoningModel" />
-              </div>
-
-              <div
-                v-if="formData.isReasoningModel"
-                class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800"
-              >
-                <div>
-                  <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {{ t('settings.aiConfig.modal.disableThinking') }}
-                  </p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('settings.aiConfig.modal.disableThinkingDesc') }}
-                  </p>
-                </div>
-                <USwitch v-model="formData.disableThinking" />
               </div>
             </template>
           </div>
@@ -567,11 +622,123 @@ function closeModal() {
               :placeholder="newModelId || t('settings.aiConfig.modal.customModelDisplayNamePlaceholder')"
             />
           </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('settings.aiConfig.modal.contextWindow') }}
+            </label>
+            <div class="flex items-center gap-2">
+              <UInput
+                v-model.number.optional="newModelContextWindow"
+                class="flex-1"
+                type="number"
+                :placeholder="t('settings.aiConfig.modal.contextWindowPlaceholder')"
+              />
+            </div>
+            <div class="mt-1.5 flex flex-wrap gap-1">
+              <button
+                v-for="opt in [
+                  { label: '64K', value: 65536 },
+                  { label: '128K', value: 128000 },
+                  { label: '200K', value: 200000 },
+                  { label: '1M', value: 1048576 },
+                ]"
+                :key="opt.value"
+                class="rounded border px-1.5 py-0.5 text-[10px] transition-colors"
+                :class="[
+                  newModelContextWindow === opt.value
+                    ? 'border-primary-400 bg-primary-50 text-primary-600 dark:border-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
+                    : 'border-gray-200 text-gray-500 hover:border-gray-300 dark:border-gray-700 dark:text-gray-400 dark:hover:border-gray-600',
+                ]"
+                @click="newModelContextWindow = opt.value"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+            <p class="mt-1 text-[10px] text-gray-400">
+              {{ t('settings.aiConfig.modal.contextWindowHint') }}
+            </p>
+          </div>
         </div>
         <div class="mt-4 flex justify-end gap-2">
           <UButton variant="soft" @click="showAddModelDialog = false">{{ t('common.cancel') }}</UButton>
           <UButton color="primary" :disabled="!newModelId.trim()" @click="confirmAddModel">
             {{ t('common.add') }}
+          </UButton>
+        </div>
+      </div>
+    </template>
+  </UModal>
+
+  <!-- 编辑模型弹窗 -->
+  <UModal
+    :open="showEditModelDialog"
+    :ui="{ content: 'z-[102]', overlay: 'z-[101]' }"
+    @update:open="showEditModelDialog = $event"
+  >
+    <template #content>
+      <div class="p-5">
+        <h4 class="mb-4 text-base font-semibold text-gray-900 dark:text-white">
+          {{ t('settings.aiConfig.modal.editModel') }}
+        </h4>
+        <div class="space-y-3">
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('settings.aiConfig.modal.customModelId') }}
+            </label>
+            <p class="text-sm text-gray-600 dark:text-gray-400">{{ formData.model }}</p>
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('settings.aiConfig.modal.customModelDisplayName') }}
+              <span class="font-normal text-gray-400">{{ t('settings.aiConfig.modal.optional') }}</span>
+            </label>
+            <UInput
+              v-model="editModelName"
+              class="w-full"
+              :placeholder="formData.model || t('settings.aiConfig.modal.customModelDisplayNamePlaceholder')"
+            />
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('settings.aiConfig.modal.contextWindow') }}
+            </label>
+            <div class="flex items-center gap-2">
+              <UInput
+                v-model.number.optional="editModelContextWindow"
+                class="flex-1"
+                type="number"
+                :placeholder="t('settings.aiConfig.modal.contextWindowPlaceholder')"
+              />
+            </div>
+            <div class="mt-1.5 flex flex-wrap gap-1">
+              <button
+                v-for="opt in [
+                  { label: '64K', value: 65536 },
+                  { label: '128K', value: 128000 },
+                  { label: '200K', value: 200000 },
+                  { label: '1M', value: 1048576 },
+                ]"
+                :key="opt.value"
+                class="rounded border px-1.5 py-0.5 text-[10px] transition-colors"
+                :class="[
+                  editModelContextWindow === opt.value
+                    ? 'border-primary-400 bg-primary-50 text-primary-600 dark:border-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
+                    : 'border-gray-200 text-gray-500 hover:border-gray-300 dark:border-gray-700 dark:text-gray-400 dark:hover:border-gray-600',
+                ]"
+                @click="editModelContextWindow = opt.value"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+            <p class="mt-1 text-[10px] text-gray-400">
+              {{ t('settings.aiConfig.modal.contextWindowHint') }}
+            </p>
+          </div>
+        </div>
+        <div class="mt-4 flex justify-end gap-2">
+          <UButton variant="soft" @click="showEditModelDialog = false">{{ t('common.cancel') }}</UButton>
+          <UButton color="primary" @click="confirmEditModel">
+            {{ t('common.save') }}
           </UButton>
         </div>
       </div>
